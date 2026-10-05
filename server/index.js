@@ -5,10 +5,12 @@ const path = require('path');
 const config = require('./config');
 const { initializeDatabase } = require('./db/schema');
 const { connectMongoDB } = require('./db/mongo');
+const { schedulePeriodicSync } = require('./services/pustTeacherSync');
 
-// Initialize Databases
+// Initialize Databases & External Synchronization
 initializeDatabase();
 connectMongoDB();
+schedulePeriodicSync(12); // Automated sync every 12 hours
 
 const app = express();
 

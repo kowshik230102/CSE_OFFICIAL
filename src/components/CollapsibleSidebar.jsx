@@ -305,7 +305,7 @@ export const CollapsibleSidebar = ({
                 </span>
               </button>
 
-              {/* Teacher Courses (Department & Non-Department, Bios & Deadlines) */}
+              {/* Teacher Panel (Faculty & Staff synced from PUST Official Portal D01) */}
               <button
                 onClick={() => handleNavClick('teacher-courses')}
                 className={`sidebar-nav-btn ${activeNavTab === 'teacher-courses' ? 'active' : ''}`}
@@ -315,7 +315,7 @@ export const CollapsibleSidebar = ({
                 }}
               >
                 <GraduationCap size={16} style={{ color: activeNavTab === 'teacher-courses' ? '#34d399' : '#6ee7b7' }} />
-                <span>Teacher Courses</span>
+                <span>Teacher Panel</span>
                 <span style={{
                   marginLeft: 'auto',
                   fontSize: '0.65rem',
@@ -325,7 +325,7 @@ export const CollapsibleSidebar = ({
                   padding: '0.1rem 0.45rem',
                   borderRadius: '8px'
                 }}>
-                  FACULTY
+                  PUST D01
                 </span>
               </button>
 

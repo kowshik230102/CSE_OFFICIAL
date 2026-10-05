@@ -5,6 +5,7 @@ const bcrypt = require('bcryptjs');
 const { db } = require('../db/schema');
 const { authenticateUser, requireRoles } = require('../middleware/auth');
 const { ensureSessionWithStandardCourses, syncAllSerialSessions } = require('../utils/sessionSync');
+const { syncPustTeachersToDatabase, getSyncStatus } = require('../services/pustTeacherSync');
 
 function requireAcademicAuthority(req, res, next) {
   if (!req.user) {
@@ -547,18 +548,19 @@ router.post('/students', authenticateUser, requireAcademicAuthority, (req, res) 
 });
 
 // ==========================================
-// 8. PUST CSE FACULTY MEMBERS & COURSES BREAKDOWN
+// 8. PUST CSE FACULTY MEMBERS & COURSES BREAKDOWN (SYNCED WITH PUST OFFICIAL PORTAL)
 // ==========================================
 
-// Get all faculty members with Department Courses, Non-Department Courses, Previous History, and Deadlines
-router.get('/faculty-courses', authenticateUser, (req, res) => {
+// Get all faculty members with Department Courses, Non-Department Courses, Staff & Live Sync Metadata
+router.get('/faculty-courses', (req, res) => {
   try {
     const teachers = db.prepare(`
       SELECT t.*,
-             u.first_name, u.last_name, u.email, u.phone_number
+             u.first_name, u.last_name, u.email, u.phone_number, u.status as user_status
       FROM teachers t
       JOIN users u ON u.id = t.user_id
-      WHERE t.profile_id IS NOT NULL OR t.department_code = 'CSE'
+      WHERE (t.profile_id IS NOT NULL OR t.id LIKE 't-100%')
+        AND u.status = 'ACTIVE'
       ORDER BY 
         CASE 
           WHEN t.designation LIKE '%Chairman%' THEN 1
@@ -586,7 +588,7 @@ router.get('/faculty-courses', authenticateUser, (req, res) => {
 
       return {
         ...teacher,
-        fullName: `${teacher.first_name} ${teacher.last_name}`,
+        fullName: `${teacher.first_name} ${teacher.last_name}`.trim(),
         currentCourses,
         deptCourses,
         nonDeptCourses,
@@ -594,10 +596,52 @@ router.get('/faculty-courses', authenticateUser, (req, res) => {
       };
     });
 
-    return res.json({ faculty: result });
+    // Also fetch Academic Department Staff members
+    const staffMembers = db.prepare(`
+      SELECT u.id, u.first_name, u.last_name, u.email, u.phone_number, u.role, u.status, u.created_at,
+             'Academic Support & Department Operations' as designation,
+             'CSE Department Office, Room 401' as office_location
+      FROM users u
+      WHERE u.role = 'OFFICE_STAFF' AND u.status = 'ACTIVE'
+      ORDER BY u.first_name ASC
+    `).all();
+
+    return res.json({
+      faculty: result,
+      staff: staffMembers,
+      departmentGlance: {
+        departmentName: 'Department of Computer Science and Engineering',
+        university: 'Pabna University of Science and Technology',
+        officePhone: '+8802588844876',
+        officeEmail: 'cse@pust.ac.bd',
+        totalTeachers: result.length,
+        totalStaff: staffMembers.length,
+        portalUrl: 'https://pust.ac.bd/academic/departments/dept_teachers/D01'
+      },
+      syncInfo: getSyncStatus()
+    });
   } catch (err) {
     return res.status(500).json({ error: 'Failed to fetch faculty courses: ' + err.message });
   }
+});
+
+// Trigger 1-Click On-Demand Sync from PUST External Website
+router.post('/sync-pust-teachers', async (req, res) => {
+  try {
+    const syncResult = await syncPustTeachersToDatabase();
+    return res.json({
+      message: `Successfully synchronized ${syncResult.totalSynced} CSE faculty members from PUST Official Portal (D01)!`,
+      syncInfo: getSyncStatus(),
+      teachers: syncResult.teachers
+    });
+  } catch (err) {
+    return res.status(500).json({ error: 'Failed to synchronize faculty from PUST portal: ' + err.message });
+  }
+});
+
+// Get Live Sync Status
+router.get('/pust-sync-status', (req, res) => {
+  return res.json({ syncInfo: getSyncStatus() });
 });
 
 // Update a teacher's course deadline or schedule
