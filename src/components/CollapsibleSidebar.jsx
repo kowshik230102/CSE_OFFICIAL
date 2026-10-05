@@ -19,7 +19,8 @@ import {
   ShieldCheck,
   ChevronRight,
   ExternalLink,
-  UserPlus
+  UserPlus,
+  CalendarCheck
 } from 'lucide-react';
 
 export const CollapsibleSidebar = ({
@@ -277,6 +278,30 @@ export const CollapsibleSidebar = ({
                   borderRadius: '8px'
                 }}>
                   40 SEATS
+                </span>
+              </button>
+
+              {/* Make Routine Generator (Class & Exam Routine) - Menu Drawer Feature */}
+              <button
+                onClick={() => handleNavClick('make-routine')}
+                className={`sidebar-nav-btn ${activeNavTab === 'make-routine' ? 'active' : ''}`}
+                style={{
+                  background: activeNavTab === 'make-routine' ? 'linear-gradient(135deg, rgba(99, 102, 241, 0.25), rgba(59, 130, 246, 0.2))' : undefined,
+                  borderColor: activeNavTab === 'make-routine' ? '#818cf8' : undefined
+                }}
+              >
+                <CalendarCheck size={16} style={{ color: activeNavTab === 'make-routine' ? '#818cf8' : '#a5b4fc' }} />
+                <span>Make Routine</span>
+                <span style={{
+                  marginLeft: 'auto',
+                  fontSize: '0.65rem',
+                  fontWeight: 800,
+                  background: 'linear-gradient(135deg, #6366f1, #3b82f6)',
+                  color: '#ffffff',
+                  padding: '0.1rem 0.45rem',
+                  borderRadius: '8px'
+                }}>
+                  BUILDER
                 </span>
               </button>
 

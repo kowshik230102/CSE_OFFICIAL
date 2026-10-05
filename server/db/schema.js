@@ -153,6 +153,20 @@ function initializeDatabase() {
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
 
+    -- 12. ROUTINES TABLE (Class and Exam Timetables)
+    CREATE TABLE IF NOT EXISTS routines (
+      id TEXT PRIMARY KEY,
+      type TEXT CHECK(type IN ('CLASS_ROUTINE', 'EXAM_ROUTINE')) NOT NULL,
+      title TEXT NOT NULL,
+      session_id TEXT REFERENCES academic_sessions(id) ON DELETE SET NULL,
+      semester_id TEXT REFERENCES semesters(id) ON DELETE SET NULL,
+      routine_data TEXT NOT NULL,
+      status TEXT DEFAULT 'DRAFT',
+      created_by TEXT REFERENCES users(id) ON DELETE SET NULL,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
     -- PERFORMANCE INDEXES (Optimized for 5,000+ Active Students)
     CREATE INDEX IF NOT EXISTS idx_users_role_status ON users(role, status);
     CREATE INDEX IF NOT EXISTS idx_students_session ON students(current_session_id);
@@ -163,6 +177,7 @@ function initializeDatabase() {
     CREATE INDEX IF NOT EXISTS idx_ct_marks_lookup ON ct_marks(course_id, student_id, ct_number);
     CREATE INDEX IF NOT EXISTS idx_notices_filter ON notices(target_type, target_session_id, target_semester_id);
     CREATE INDEX IF NOT EXISTS idx_grievances_status ON student_grievances(status, created_at);
+    CREATE INDEX IF NOT EXISTS idx_routines_session ON routines(session_id, semester_id);
   `);
 
   // Gracefully migrate existing notices table if category column is missing

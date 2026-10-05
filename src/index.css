@@ -2192,6 +2192,68 @@ body {
   transform: translateY(-1px);
 }
 
+/* ==========================================================================
+   Academic Routine & Timetable Print & PDF Export Styles
+   ========================================================================== */
+@media print {
+  /* Hide interactive non-printable elements */
+  .top-nav,
+  .sidebar-drawer,
+  .sidebar-drawer-overlay,
+  .routine-header-card button,
+  .routine-builder-wrapper > div:nth-child(2),
+  .card button,
+  .btn,
+  header,
+  aside,
+  nav {
+    display: none !important;
+  }
+
+  body {
+    background: #ffffff !important;
+    color: #000000 !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    font-size: 10pt !important;
+  }
+
+  .content-area {
+    padding: 0 !important;
+    max-width: 100% !important;
+    margin: 0 !important;
+  }
+
+  .routine-builder-wrapper {
+    padding: 0 !important;
+  }
+
+  .card {
+    box-shadow: none !important;
+    border: 1px solid #cbd5e1 !important;
+    background: #ffffff !important;
+    page-break-inside: avoid;
+    margin-bottom: 20px !important;
+  }
+
+  table {
+    width: 100% !important;
+    border-collapse: collapse !important;
+    font-size: 9pt !important;
+  }
+
+  th, td {
+    border: 1px solid #cbd5e1 !important;
+    padding: 6px !important;
+  }
+
+  @page {
+    size: A4 landscape;
+    margin: 1.2cm;
+  }
+}
+
+
 
 
 

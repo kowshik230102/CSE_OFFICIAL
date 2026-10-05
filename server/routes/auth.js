@@ -565,7 +565,7 @@ router.patch('/users/:id/status', authenticateUser, requireRoles(['ADMIN']), (re
 router.get('/teachers', authenticateUser, (req, res) => {
   const teachers = db.prepare(`
     SELECT t.id as teacher_id, t.designation, t.department_code, t.room_number,
-           u.id as user_id, u.first_name, u.last_name, u.email
+           u.id as user_id, u.first_name, u.last_name, u.email, u.phone_number
     FROM teachers t
     JOIN users u ON u.id = t.user_id
     WHERE u.status = 'ACTIVE'

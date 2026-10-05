@@ -177,7 +177,9 @@ router.get('/semesters/:semesterId/courses', authenticateUser, (req, res) => {
            ca.teacher_id as assigned_teacher_id,
            u.first_name || ' ' || u.last_name as assigned_teacher_name,
            u.email as assigned_teacher_email,
+           u.phone_number as assigned_teacher_phone,
            t.designation as assigned_teacher_designation,
+           t.department_code as assigned_teacher_department,
            (SELECT COUNT(*) FROM course_materials WHERE course_id = c.id) as material_count,
            (SELECT COUNT(DISTINCT student_id) FROM ct_marks WHERE course_id = c.id) as marked_student_count
     FROM courses c

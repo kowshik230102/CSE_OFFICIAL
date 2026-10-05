@@ -47,6 +47,7 @@ app.use('/api/academic', require('./routes/academic'));
 app.use('/api/courses', require('./routes/courses'));
 app.use('/api/notices', require('./routes/notices'));
 app.use('/api/grievances', require('./routes/grievances'));
+app.use('/api/routines', require('./routes/routines'));
 
 // Health & System Information
 app.get('/api/health', (req, res) => {

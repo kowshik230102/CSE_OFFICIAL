@@ -11,6 +11,7 @@ import { OfficeView } from './components/OfficeView';
 import { TeacherView } from './components/TeacherView';
 import { StudentView } from './components/StudentView';
 import { PasswordModal } from './components/AuthModals';
+import { RoutineGeneratorView } from './components/RoutineGeneratorView';
 import { GraduationCap } from 'lucide-react';
 
 export function App() {
@@ -102,12 +103,22 @@ export function App() {
         onLogout={logout}
       />
 
-      {/* Main Content Area Displaying Role-Specific Workspace */}
+      {/* Main Content Area Displaying Role-Specific Workspace or Dedicated Routine Generator */}
       <main className="content-area">
-        {user.role === 'ADMIN' && <AdminView initialTab={getRoleTab() || 'users'} />}
-        {user.role === 'OFFICE_STAFF' && <OfficeView initialTab={getRoleTab() || 'sessions'} />}
-        {user.role === 'TEACHER' && <TeacherView initialTab={getRoleTab() || 'my-courses'} />}
-        {user.role === 'STUDENT' && <StudentView initialTab={getRoleTab() || 'courses'} />}
+        {activeNavTab === 'make-routine' ? (
+          <RoutineGeneratorView 
+            user={user} 
+            onBackToDashboard={() => setActiveNavTab('dashboard')} 
+            onNavigateNoticeBoard={() => setActiveNavTab('notices')} 
+          />
+        ) : (
+          <>
+            {user.role === 'ADMIN' && <AdminView initialTab={getRoleTab() || 'users'} />}
+            {user.role === 'OFFICE_STAFF' && <OfficeView initialTab={getRoleTab() || 'sessions'} />}
+            {user.role === 'TEACHER' && <TeacherView initialTab={getRoleTab() || 'my-courses'} />}
+            {user.role === 'STUDENT' && <StudentView initialTab={getRoleTab() || 'courses'} />}
+          </>
+        )}
       </main>
 
       {/* Profile Modal */}
