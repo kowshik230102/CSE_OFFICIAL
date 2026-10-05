@@ -3,6 +3,7 @@ const router = express.Router();
 const crypto = require('crypto');
 const { db } = require('../db/schema');
 const { authenticateUser, requireRoles } = require('../middleware/auth');
+const { ensureSessionWithStandardCourses } = require('../utils/sessionSync');
 
 // 1. GET ALL SAVED ROUTINES
 router.get('/', authenticateUser, (req, res) => {
@@ -117,15 +118,44 @@ router.get('/:id', authenticateUser, (req, res) => {
 
 // 4. CREATE / SAVE NEW ROUTINE
 router.post('/', authenticateUser, (req, res) => {
-  const { type, title, sessionId, semesterId, routineData, status } = req.body;
+  const { type, title, sessionId, semesterId, routineData, status, sessionName, startClassDate } = req.body;
 
   if (!title || !title.trim()) {
     return res.status(400).json({ error: 'Routine title is required.' });
   }
 
+  // Parse routineData if provided as object or JSON string
+  let parsedData = {};
+  if (typeof routineData === 'object' && routineData !== null) {
+    parsedData = routineData;
+  } else if (typeof routineData === 'string') {
+    try {
+      parsedData = JSON.parse(routineData);
+    } catch (e) {
+      parsedData = {};
+    }
+  }
+
+  // Auto-create or ensure session exists if added in routine or start class date is given
+  let finalSessionId = sessionId;
+  const targetSessionName = sessionName || parsedData.sessionName || parsedData.session_name;
+  const targetStartDate = startClassDate || parsedData.startClassDate || parsedData.start_date;
+  const targetEndDate = parsedData.endClassDate || parsedData.end_date;
+
+  if (targetSessionName) {
+    const ensured = ensureSessionWithStandardCourses(targetSessionName, targetStartDate, targetEndDate);
+    if (ensured) finalSessionId = ensured.id;
+  } else if (sessionId) {
+    const existing = db.prepare('SELECT id FROM academic_sessions WHERE id = ?').get(sessionId);
+    if (!existing) {
+      const ensured = ensureSessionWithStandardCourses(sessionId, targetStartDate, targetEndDate);
+      if (ensured) finalSessionId = ensured.id;
+    }
+  }
+
   const routineType = type === 'EXAM_ROUTINE' ? 'EXAM_ROUTINE' : 'CLASS_ROUTINE';
   const routineId = 'rtn-' + crypto.randomUUID();
-  const dataString = typeof routineData === 'string' ? routineData : JSON.stringify(routineData || {});
+  const dataString = typeof routineData === 'string' ? routineData : JSON.stringify(parsedData);
   const routineStatus = status === 'PUBLISHED' ? 'PUBLISHED' : 'DRAFT';
 
   try {
@@ -136,7 +166,7 @@ router.post('/', authenticateUser, (req, res) => {
       routineId,
       routineType,
       title.trim(),
-      sessionId || null,
+      finalSessionId || null,
       semesterId || null,
       dataString,
       routineStatus,
@@ -146,6 +176,7 @@ router.post('/', authenticateUser, (req, res) => {
     return res.status(201).json({
       message: 'Routine saved successfully!',
       id: routineId,
+      sessionId: finalSessionId,
       status: routineStatus
     });
   } catch (err) {
@@ -155,12 +186,40 @@ router.post('/', authenticateUser, (req, res) => {
 
 // 5. UPDATE EXISTING ROUTINE
 router.put('/:id', authenticateUser, (req, res) => {
-  const { title, sessionId, semesterId, routineData, status } = req.body;
+  const { title, sessionId, semesterId, routineData, status, sessionName, startClassDate } = req.body;
   const routineId = req.params.id;
 
   const existing = db.prepare('SELECT id FROM routines WHERE id = ?').get(routineId);
   if (!existing) {
     return res.status(404).json({ error: 'Routine not found.' });
+  }
+
+  // Parse routineData
+  let parsedData = {};
+  if (typeof routineData === 'object' && routineData !== null) {
+    parsedData = routineData;
+  } else if (typeof routineData === 'string') {
+    try {
+      parsedData = JSON.parse(routineData);
+    } catch (e) {
+      parsedData = {};
+    }
+  }
+
+  let finalSessionId = sessionId;
+  const targetSessionName = sessionName || parsedData.sessionName || parsedData.session_name;
+  const targetStartDate = startClassDate || parsedData.startClassDate || parsedData.start_date;
+  const targetEndDate = parsedData.endClassDate || parsedData.end_date;
+
+  if (targetSessionName) {
+    const ensured = ensureSessionWithStandardCourses(targetSessionName, targetStartDate, targetEndDate);
+    if (ensured) finalSessionId = ensured.id;
+  } else if (sessionId) {
+    const existingSess = db.prepare('SELECT id FROM academic_sessions WHERE id = ?').get(sessionId);
+    if (!existingSess) {
+      const ensured = ensureSessionWithStandardCourses(sessionId, targetStartDate, targetEndDate);
+      if (ensured) finalSessionId = ensured.id;
+    }
   }
 
   try {

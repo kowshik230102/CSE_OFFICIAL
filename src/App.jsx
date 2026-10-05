@@ -12,6 +12,8 @@ import { TeacherView } from './components/TeacherView';
 import { StudentView } from './components/StudentView';
 import { PasswordModal } from './components/AuthModals';
 import { RoutineGeneratorView } from './components/RoutineGeneratorView';
+import { TeacherCoursesView } from './components/TeacherCoursesView';
+import { ContinuousAssessmentView } from './components/ContinuousAssessmentView';
 import { GraduationCap } from 'lucide-react';
 
 export function App() {
@@ -103,13 +105,23 @@ export function App() {
         onLogout={logout}
       />
 
-      {/* Main Content Area Displaying Role-Specific Workspace or Dedicated Routine Generator */}
+      {/* Main Content Area Displaying Role-Specific Workspace, Dedicated Routine Generator or Teacher Courses */}
       <main className="content-area">
         {activeNavTab === 'make-routine' ? (
           <RoutineGeneratorView 
             user={user} 
             onBackToDashboard={() => setActiveNavTab('dashboard')} 
             onNavigateNoticeBoard={() => setActiveNavTab('notices')} 
+          />
+        ) : activeNavTab === 'teacher-courses' ? (
+          <TeacherCoursesView
+            user={user}
+            onBackToDashboard={() => setActiveNavTab('dashboard')}
+          />
+        ) : activeNavTab === 'continuous-assessment' ? (
+          <ContinuousAssessmentView
+            user={user}
+            onBackToDashboard={() => setActiveNavTab('dashboard')}
           />
         ) : (
           <>

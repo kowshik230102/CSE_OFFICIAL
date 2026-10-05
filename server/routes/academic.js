@@ -4,6 +4,7 @@ const crypto = require('crypto');
 const bcrypt = require('bcryptjs');
 const { db } = require('../db/schema');
 const { authenticateUser, requireRoles } = require('../middleware/auth');
+const { ensureSessionWithStandardCourses, syncAllSerialSessions } = require('../utils/sessionSync');
 
 function requireAcademicAuthority(req, res, next) {
   if (!req.user) {
@@ -542,6 +543,460 @@ router.post('/students', authenticateUser, requireAcademicAuthority, (req, res) 
     });
   } catch (err) {
     return res.status(500).json({ error: 'Failed to enroll student: ' + err.message });
+  }
+});
+
+// ==========================================
+// 8. PUST CSE FACULTY MEMBERS & COURSES BREAKDOWN
+// ==========================================
+
+// Get all faculty members with Department Courses, Non-Department Courses, Previous History, and Deadlines
+router.get('/faculty-courses', authenticateUser, (req, res) => {
+  try {
+    const teachers = db.prepare(`
+      SELECT t.*,
+             u.first_name, u.last_name, u.email, u.phone_number
+      FROM teachers t
+      JOIN users u ON u.id = t.user_id
+      WHERE t.profile_id IS NOT NULL OR t.department_code = 'CSE'
+      ORDER BY 
+        CASE 
+          WHEN t.designation LIKE '%Chairman%' THEN 1
+          WHEN t.designation LIKE '%Professor%' AND t.designation NOT LIKE '%Associate%' AND t.designation NOT LIKE '%Assistant%' THEN 2
+          WHEN t.designation LIKE '%Associate Professor%' THEN 3
+          WHEN t.designation LIKE '%Assistant Professor%' THEN 4
+          ELSE 5
+        END ASC,
+        t.publications_count DESC
+    `).all();
+
+    const coursesStmt = db.prepare(`
+      SELECT * FROM teacher_courses
+      WHERE teacher_id = ?
+      ORDER BY is_current DESC, course_code ASC
+    `);
+
+    const result = teachers.map(teacher => {
+      const allCourses = coursesStmt.all(teacher.id);
+      const currentCourses = allCourses.filter(c => c.is_current === 1);
+      const previousCourses = allCourses.filter(c => c.is_current === 0);
+
+      const deptCourses = currentCourses.filter(c => c.course_type === 'DEPARTMENT');
+      const nonDeptCourses = currentCourses.filter(c => c.course_type === 'NON_DEPARTMENT');
+
+      return {
+        ...teacher,
+        fullName: `${teacher.first_name} ${teacher.last_name}`,
+        currentCourses,
+        deptCourses,
+        nonDeptCourses,
+        previousCourses
+      };
+    });
+
+    return res.json({ faculty: result });
+  } catch (err) {
+    return res.status(500).json({ error: 'Failed to fetch faculty courses: ' + err.message });
+  }
+});
+
+// Update a teacher's course deadline or schedule
+router.put('/faculty-courses/:id', authenticateUser, (req, res) => {
+  const { classEndDate, weeklySchedule, targetDept } = req.body;
+  const courseId = req.params.id;
+
+  try {
+    db.prepare(`
+      UPDATE teacher_courses
+      SET class_end_date = COALESCE(?, class_end_date),
+          weekly_schedule = COALESCE(?, weekly_schedule),
+          target_dept = COALESCE(?, target_dept)
+      WHERE id = ?
+    `).run(classEndDate || null, weeklySchedule || null, targetDept || null, courseId);
+
+    return res.json({ message: 'Course schedule updated successfully.' });
+  } catch (err) {
+    return res.status(500).json({ error: 'Failed to update course schedule: ' + err.message });
+  }
+});
+
+// ==========================================
+// 8. CONTINUOUS ASSESSMENT PIPELINE & MARKS MATRIX
+// ==========================================
+
+// Helper: Calculate grade from percentage (PUST Grading Ordinance)
+function calculatePUSTGrade(percentage) {
+  if (percentage >= 80) return { grade: 'A+', gpa: 4.0, status: 'EXCELLENT' };
+  if (percentage >= 75) return { grade: 'A', gpa: 3.75, status: 'VERY_GOOD' };
+  if (percentage >= 70) return { grade: 'A-', gpa: 3.50, status: 'GOOD' };
+  if (percentage >= 65) return { grade: 'B+', gpa: 3.25, status: 'SATISFACTORY' };
+  if (percentage >= 60) return { grade: 'B', gpa: 3.00, status: 'ABOVE_AVERAGE' };
+  if (percentage >= 55) return { grade: 'B-', gpa: 2.75, status: 'AVERAGE' };
+  if (percentage >= 50) return { grade: 'C+', gpa: 2.50, status: 'PASS' };
+  if (percentage >= 45) return { grade: 'C', gpa: 2.25, status: 'PASS' };
+  if (percentage >= 40) return { grade: 'D', gpa: 2.00, status: 'MARGINAL' };
+  return { grade: 'F', gpa: 0.0, status: 'FAIL' };
+}
+
+// 8a. GET ALL SESSIONS SERIALLY
+router.get('/continuous-assessment/sessions', authenticateUser, (req, res) => {
+  try {
+    // Retrieve all sessions
+    const sessions = db.prepare(`
+      SELECT s.id, s.session_name, s.start_date, s.end_date, s.is_current,
+             (SELECT COUNT(DISTINCT c.id) FROM courses c JOIN semesters sem ON sem.id = c.semester_id WHERE sem.session_id = s.id) as course_count,
+             (SELECT COUNT(DISTINCT st.id) FROM students st WHERE st.current_session_id = s.id) as student_count,
+             (SELECT COUNT(DISTINCT ca.teacher_id) FROM courses c JOIN semesters sem ON sem.id = c.semester_id JOIN course_assignments ca ON ca.course_id = c.id WHERE sem.session_id = s.id) as teacher_count,
+             (SELECT COUNT(DISTINCT m.id) FROM ct_marks m JOIN courses c ON c.id = m.course_id JOIN semesters sem ON sem.id = c.semester_id WHERE sem.session_id = s.id) as assessed_marks_count
+      FROM academic_sessions s
+    `).all();
+
+    // Sort sessions in strict serial order:
+    // Extract 4-digit start year from session_name or start_date, descending (e.g. 2024-2025, 2023-2024, 2022-2023)
+    const sorted = [...sessions].sort((a, b) => {
+      // Prioritize current session
+      if (a.is_current && !b.is_current) return -1;
+      if (!a.is_current && b.is_current) return 1;
+
+      const yearA = parseInt((a.session_name.match(/(\d{4})/) || [0, 0])[1]) || (a.start_date ? parseInt(a.start_date.slice(0, 4)) : 0);
+      const yearB = parseInt((b.session_name.match(/(\d{4})/) || [0, 0])[1]) || (b.start_date ? parseInt(b.start_date.slice(0, 4)) : 0);
+      return yearB - yearA;
+    });
+
+    return res.json({ sessions: sorted });
+  } catch (err) {
+    return res.status(500).json({ error: 'Failed to fetch continuous assessment sessions: ' + err.message });
+  }
+});
+
+// 8b. CREATE / START NEW ACADEMIC SESSION
+router.post('/continuous-assessment/sessions', authenticateUser, (req, res) => {
+  const { sessionName, startDate, endDate, isCurrent } = req.body;
+
+  if (!sessionName || !sessionName.trim()) {
+    return res.status(400).json({ error: 'Session name is required.' });
+  }
+
+  try {
+    const session = ensureSessionWithStandardCourses(sessionName.trim(), startDate, endDate, Boolean(isCurrent));
+    return res.status(201).json({
+      message: `Academic Session '${session.session_name}' initialized with 8 standard semesters, courses, and teacher allocations!`,
+      session
+    });
+  } catch (err) {
+    return res.status(500).json({ error: 'Failed to create session: ' + err.message });
+  }
+});
+
+// 8c. GET ALL COURSES INSIDE A SESSION WITH ASSIGNED TEACHER DETAILS
+router.get('/continuous-assessment/sessions/:sessionId/courses', authenticateUser, (req, res) => {
+  const { sessionId } = req.params;
+  const user = req.user;
+
+  try {
+    const session = db.prepare('SELECT * FROM academic_sessions WHERE id = ?').get(sessionId);
+    if (!session) {
+      return res.status(404).json({ error: 'Session not found.' });
+    }
+
+    const termOrder = ['Y1S1', 'Y1S2', 'Y2S1', 'Y2S2', 'Y3S1', 'Y3S2', 'Y4S1', 'Y4S2'];
+
+    const courses = db.prepare(`
+      SELECT c.id, c.course_code, c.course_title, c.credit_hours, c.course_type, c.syllabus_outline,
+             sem.id as semester_id, sem.semester_name, sem.term_code,
+             ca.teacher_id as assigned_teacher_id,
+             t.user_id as teacher_user_id,
+             u.first_name || ' ' || u.last_name as assigned_teacher_name,
+             u.email as assigned_teacher_email,
+             u.phone_number as assigned_teacher_phone,
+             t.designation as assigned_teacher_designation,
+             COALESCE(t.department_code, 'CSE') as assigned_teacher_department,
+             t.room_number as assigned_teacher_room,
+             t.photo_url as assigned_teacher_photo,
+             t.qualification as assigned_teacher_qualification,
+             t.research_area as assigned_teacher_research,
+             t.bio as assigned_teacher_bio,
+             t.profile_id as assigned_teacher_profile_id,
+             t.on_leave as assigned_teacher_on_leave,
+             (SELECT COUNT(*) FROM students WHERE current_session_id = sem.session_id) as enrolled_students_count,
+             (SELECT COUNT(DISTINCT student_id) FROM ct_marks WHERE course_id = c.id) as assessed_students_count,
+             (SELECT AVG(obtained_marks) FROM ct_marks WHERE course_id = c.id) as avg_mark
+      FROM courses c
+      JOIN semesters sem ON sem.id = c.semester_id
+      LEFT JOIN course_assignments ca ON ca.course_id = c.id
+      LEFT JOIN teachers t ON t.id = ca.teacher_id
+      LEFT JOIN users u ON u.id = t.user_id
+      WHERE sem.session_id = ?
+    `).all(sessionId);
+
+    // Sort by semester termOrder and course_code
+    courses.sort((a, b) => {
+      const idxA = termOrder.indexOf(a.term_code);
+      const idxB = termOrder.indexOf(b.term_code);
+      if (idxA !== idxB && idxA !== -1 && idxB !== -1) return idxA - idxB;
+      return a.course_code.localeCompare(b.course_code);
+    });
+
+    const coursesWithAuth = courses.map(c => {
+      const isAssigned = (user.teacherId && user.teacherId === c.assigned_teacher_id) ||
+                         (user.id && user.id === c.teacher_user_id);
+      return {
+        ...c,
+        is_user_assigned_teacher: Boolean(isAssigned),
+        can_edit: Boolean(isAssigned || user.role === 'ADMIN')
+      };
+    });
+
+    return res.json({
+      session,
+      courses: coursesWithAuth,
+      total_courses: coursesWithAuth.length
+    });
+  } catch (err) {
+    return res.status(500).json({ error: 'Failed to fetch session courses: ' + err.message });
+  }
+});
+
+// 8d. GET STUDENT REGULAR ASSESSMENT MARKS WITH FULL DETAILS FOR A COURSE
+router.get('/continuous-assessment/courses/:courseId/marks', authenticateUser, (req, res) => {
+  const { courseId } = req.params;
+  const user = req.user;
+
+  try {
+    const course = db.prepare(`
+      SELECT c.*,
+             sem.session_id, sem.semester_name, sem.term_code,
+             s.session_name,
+             ca.teacher_id as assigned_teacher_id,
+             t.user_id as teacher_user_id,
+             u.first_name || ' ' || u.last_name as assigned_teacher_name,
+             u.email as assigned_teacher_email,
+             u.phone_number as assigned_teacher_phone,
+             t.designation as assigned_teacher_designation,
+             COALESCE(t.department_code, 'CSE') as assigned_teacher_department,
+             t.room_number as assigned_teacher_room,
+             t.photo_url as assigned_teacher_photo,
+             t.bio as assigned_teacher_bio,
+             t.research_area as assigned_teacher_research
+      FROM courses c
+      JOIN semesters sem ON sem.id = c.semester_id
+      JOIN academic_sessions s ON s.id = sem.session_id
+      LEFT JOIN course_assignments ca ON ca.course_id = c.id
+      LEFT JOIN teachers t ON t.id = ca.teacher_id
+      LEFT JOIN users u ON u.id = t.user_id
+      WHERE c.id = ?
+    `).get(courseId);
+
+    if (!course) {
+      return res.status(404).json({ error: 'Course not found.' });
+    }
+
+    // Strict Authorization check: only the assigned course teacher can edit
+    const isAssigned = (user.teacherId && user.teacherId === course.assigned_teacher_id) ||
+                       (user.id && user.id === course.teacher_user_id);
+    const canEdit = Boolean(isAssigned || user.role === 'ADMIN');
+
+    // Fetch all students in this session
+    const students = db.prepare(`
+      SELECT st.id as student_id, st.student_roll, st.registration_no,
+             u.first_name || ' ' || u.last_name as student_name,
+             u.email as student_email
+      FROM students st
+      JOIN users u ON u.id = st.user_id
+      WHERE st.current_session_id = ?
+      ORDER BY st.student_roll ASC
+    `).all(course.session_id);
+
+    // Fetch all marks for this course
+    const marks = db.prepare(`
+      SELECT m.*, u.first_name || ' ' || u.last_name as recorded_by_name
+      FROM ct_marks m
+      LEFT JOIN teachers t ON t.id = m.recorded_by
+      LEFT JOIN users u ON u.id = t.user_id
+      WHERE m.course_id = ?
+    `).all(courseId);
+
+    // Group marks by student
+    const marksByStudent = {};
+    for (const m of marks) {
+      if (!marksByStudent[m.student_id]) {
+        marksByStudent[m.student_id] = {};
+      }
+      marksByStudent[m.student_id][m.ct_number] = {
+        obtained: m.obtained_marks,
+        max: m.max_marks || 10.0,
+        remarks: m.remarks || ''
+      };
+    }
+
+    // Build comprehensive roster matrix
+    const matrix = students.map(st => {
+      const studentMarks = marksByStudent[st.student_id] || {};
+      const ct1 = studentMarks[1] !== undefined ? studentMarks[1].obtained : null;
+      const ct2 = studentMarks[2] !== undefined ? studentMarks[2].obtained : null;
+      const ct3 = studentMarks[3] !== undefined ? studentMarks[3].obtained : null;
+      const attendance = studentMarks[4] !== undefined ? studentMarks[4].obtained : null;
+      const remarks = (studentMarks[1]?.remarks || studentMarks[2]?.remarks || studentMarks[3]?.remarks || studentMarks[4]?.remarks || '');
+
+      // Calculate Best 2 of 3 Class Tests (PUST Ordinance: Best 2 CTs = 20 Marks)
+      const validCTs = [ct1, ct2, ct3].filter(v => v !== null && !isNaN(v)).map(Number);
+      let best2Total = 0;
+      let ctAverage = 0;
+      if (validCTs.length > 0) {
+        validCTs.sort((a, b) => b - a);
+        const top2 = validCTs.slice(0, 2);
+        best2Total = top2.reduce((sum, v) => sum + v, 0);
+        // If CTs out of 10 each, best 2 sum = out of 20
+        ctAverage = validCTs.reduce((sum, v) => sum + v, 0) / validCTs.length;
+      }
+
+      const attMarks = (attendance !== null && !isNaN(attendance)) ? Number(attendance) : 0;
+      // Total Continuous Assessment = Best 2 CTs (20) + Attendance (10) = 30 Marks Total
+      const totalContinuous = validCTs.length > 0 ? Number((best2Total + attMarks).toFixed(1)) : (attendance !== null ? attMarks : null);
+      const percentage = totalContinuous !== null ? Number(((totalContinuous / 30) * 100).toFixed(1)) : null;
+      const gradeInfo = percentage !== null ? calculatePUSTGrade(percentage) : { grade: '-', gpa: 0, status: 'NOT_EVALUATED' };
+
+      return {
+        studentId: st.student_id,
+        studentRoll: st.student_roll,
+        registrationNo: st.registration_no,
+        studentName: st.student_name,
+        studentEmail: st.student_email,
+        ct1,
+        ct2,
+        ct3,
+        best2Total: validCTs.length > 0 ? Number(best2Total.toFixed(1)) : null,
+        ctAverage: validCTs.length > 0 ? Number(ctAverage.toFixed(1)) : null,
+        attendance,
+        totalContinuous,
+        percentage,
+        grade: gradeInfo.grade,
+        gpa: gradeInfo.gpa,
+        status: gradeInfo.status,
+        remarks,
+        isEvaluated: validCTs.length > 0 || attendance !== null
+      };
+    });
+
+    // Summary statistics
+    const evaluatedList = matrix.filter(m => m.isEvaluated && m.totalContinuous !== null);
+    const avgScore = evaluatedList.length > 0
+      ? Number((evaluatedList.reduce((sum, m) => sum + m.totalContinuous, 0) / evaluatedList.length).toFixed(1))
+      : 0;
+    const highestScore = evaluatedList.length > 0 ? Math.max(...evaluatedList.map(m => m.totalContinuous)) : 0;
+    const lowestScore = evaluatedList.length > 0 ? Math.min(...evaluatedList.map(m => m.totalContinuous)) : 0;
+    const passCount = evaluatedList.filter(m => m.percentage >= 40).length;
+    const distinctionCount = evaluatedList.filter(m => m.percentage >= 80).length;
+
+    return res.json({
+      course,
+      canEdit,
+      isAssignedTeacher: Boolean(isAssigned),
+      matrix,
+      stats: {
+        totalEnrolled: students.length,
+        totalEvaluated: evaluatedList.length,
+        avgScore,
+        highestScore,
+        lowestScore,
+        passCount,
+        distinctionCount
+      }
+    });
+  } catch (err) {
+    return res.status(500).json({ error: 'Failed to fetch course assessment marks: ' + err.message });
+  }
+});
+
+// 8e. SAVE CONTINUOUS ASSESSMENT MARKS (Strict: Only Assigned Course Teacher)
+router.post('/continuous-assessment/courses/:courseId/marks', authenticateUser, (req, res) => {
+  const { courseId } = req.params;
+  const { matrix } = req.body; // Array of { studentId, ct1, ct2, ct3, attendance, remarks }
+  const user = req.user;
+
+  if (!Array.isArray(matrix)) {
+    return res.status(400).json({ error: 'Invalid matrix data. Array expected.' });
+  }
+
+  // 1. Verify Course and Assigned Teacher
+  const course = db.prepare(`
+    SELECT c.id, c.course_code, c.course_title,
+           ca.teacher_id as assigned_teacher_id,
+           t.user_id as teacher_user_id,
+           u.first_name || ' ' || u.last_name as assigned_teacher_name,
+           t.department_code as assigned_teacher_department
+    FROM courses c
+    LEFT JOIN course_assignments ca ON ca.course_id = c.id
+    LEFT JOIN teachers t ON t.id = ca.teacher_id
+    LEFT JOIN users u ON u.id = t.user_id
+    WHERE c.id = ?
+  `).get(courseId);
+
+  if (!course) {
+    return res.status(404).json({ error: 'Course not found.' });
+  }
+
+  const isAssigned = (user.teacherId && user.teacherId === course.assigned_teacher_id) ||
+                     (user.id && user.id === course.teacher_user_id);
+
+  // STRICT REQUIREMENT: Only the assigned course teacher can edit!
+  if (!isAssigned && user.role !== 'ADMIN') {
+    return res.status(403).json({
+      error: `Access Denied: Continuous assessment marks can only be entered or modified by the assigned course teacher: ${course.assigned_teacher_name || 'Assigned Faculty'}.`
+    });
+  }
+
+  const teacherIdToRecord = user.teacherId || course.assigned_teacher_id || 't-1';
+
+  const upsertMark = db.prepare(`
+    INSERT INTO ct_marks (id, course_id, student_id, recorded_by, ct_number, obtained_marks, max_marks, remarks, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+    ON CONFLICT(course_id, student_id, ct_number) DO UPDATE SET
+      obtained_marks = excluded.obtained_marks,
+      max_marks = excluded.max_marks,
+      recorded_by = excluded.recorded_by,
+      remarks = excluded.remarks,
+      updated_at = CURRENT_TIMESTAMP
+  `);
+
+  const saveTx = db.transaction(() => {
+    for (const item of matrix) {
+      if (!item.studentId) continue;
+
+      const assessments = [
+        { ctNumber: 1, val: item.ct1 },
+        { ctNumber: 2, val: item.ct2 },
+        { ctNumber: 3, val: item.ct3 },
+        { ctNumber: 4, val: item.attendance } // 4 = Class Attendance (Max 10)
+      ];
+
+      for (const a of assessments) {
+        if (a.val !== undefined && a.val !== null && a.val !== '' && !isNaN(a.val)) {
+          const markVal = Math.min(10.0, Math.max(0.0, parseFloat(a.val)));
+          const markId = `ct-${courseId}-${item.studentId}-${a.ctNumber}`;
+          upsertMark.run(
+            markId,
+            courseId,
+            item.studentId,
+            teacherIdToRecord,
+            a.ctNumber,
+            markVal,
+            10.0,
+            item.remarks || ''
+          );
+        }
+      }
+    }
+  });
+
+  try {
+    saveTx();
+    return res.json({
+      message: `Continuous Assessment marks for ${course.course_code} successfully saved by ${course.assigned_teacher_name}!`,
+      courseId
+    });
+  } catch (err) {
+    return res.status(500).json({ error: 'Failed to save marks matrix: ' + err.message });
   }
 });
 

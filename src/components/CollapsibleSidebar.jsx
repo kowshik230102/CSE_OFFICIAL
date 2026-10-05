@@ -305,6 +305,54 @@ export const CollapsibleSidebar = ({
                 </span>
               </button>
 
+              {/* Teacher Courses (Department & Non-Department, Bios & Deadlines) */}
+              <button
+                onClick={() => handleNavClick('teacher-courses')}
+                className={`sidebar-nav-btn ${activeNavTab === 'teacher-courses' ? 'active' : ''}`}
+                style={{
+                  background: activeNavTab === 'teacher-courses' ? 'linear-gradient(135deg, rgba(16, 185, 129, 0.25), rgba(5, 150, 105, 0.2))' : undefined,
+                  borderColor: activeNavTab === 'teacher-courses' ? '#34d399' : undefined
+                }}
+              >
+                <GraduationCap size={16} style={{ color: activeNavTab === 'teacher-courses' ? '#34d399' : '#6ee7b7' }} />
+                <span>Teacher Courses</span>
+                <span style={{
+                  marginLeft: 'auto',
+                  fontSize: '0.65rem',
+                  fontWeight: 800,
+                  background: 'linear-gradient(135deg, #10b981, #059669)',
+                  color: '#ffffff',
+                  padding: '0.1rem 0.45rem',
+                  borderRadius: '8px'
+                }}>
+                  FACULTY
+                </span>
+              </button>
+
+              {/* Continuous Assessment (Serial Sessions, Course Allocations & Marks Matrix) */}
+              <button
+                onClick={() => handleNavClick('continuous-assessment')}
+                className={`sidebar-nav-btn ${activeNavTab === 'continuous-assessment' ? 'active' : ''}`}
+                style={{
+                  background: activeNavTab === 'continuous-assessment' ? 'linear-gradient(135deg, rgba(236, 72, 153, 0.25), rgba(168, 85, 247, 0.2))' : undefined,
+                  borderColor: activeNavTab === 'continuous-assessment' ? '#f472b6' : undefined
+                }}
+              >
+                <Award size={16} style={{ color: activeNavTab === 'continuous-assessment' ? '#f472b6' : '#f9a8d4' }} />
+                <span>Continuous Assessment</span>
+                <span style={{
+                  marginLeft: 'auto',
+                  fontSize: '0.65rem',
+                  fontWeight: 800,
+                  background: 'linear-gradient(135deg, #ec4899, #a855f7)',
+                  color: '#ffffff',
+                  padding: '0.1rem 0.45rem',
+                  borderRadius: '8px'
+                }}>
+                  MARKS
+                </span>
+              </button>
+
               {/* Chairman Exclusive: Create Account Feature */}
               {(user?.isChair || user?.email === 'chair.cse_pust@gmail.com' || user?.role === 'ADMIN') && (
                 <button

@@ -178,6 +178,25 @@ function initializeDatabase() {
     CREATE INDEX IF NOT EXISTS idx_notices_filter ON notices(target_type, target_session_id, target_semester_id);
     CREATE INDEX IF NOT EXISTS idx_grievances_status ON student_grievances(status, created_at);
     CREATE INDEX IF NOT EXISTS idx_routines_session ON routines(session_id, semester_id);
+
+    -- 13. TEACHER COURSES & SCHEDULE TRACKING (Department & Non-Department Courses)
+    CREATE TABLE IF NOT EXISTS teacher_courses (
+      id TEXT PRIMARY KEY,
+      teacher_id TEXT NOT NULL REFERENCES teachers(id) ON DELETE CASCADE,
+      course_code TEXT NOT NULL,
+      course_title TEXT NOT NULL,
+      course_type TEXT CHECK(course_type IN ('DEPARTMENT', 'NON_DEPARTMENT')) DEFAULT 'DEPARTMENT',
+      target_dept TEXT DEFAULT 'CSE',
+      session_name TEXT NOT NULL,
+      semester_name TEXT NOT NULL,
+      credit_hours REAL DEFAULT 3.0,
+      weekly_schedule TEXT,
+      class_end_date DATE NOT NULL,
+      is_current INTEGER DEFAULT 1,
+      students_count INTEGER DEFAULT 40,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE INDEX IF NOT EXISTS idx_teacher_courses_lookup ON teacher_courses(teacher_id, is_current);
   `);
 
   // Gracefully migrate existing notices table if category column is missing
@@ -193,11 +212,29 @@ function initializeDatabase() {
     // Ignore if index creation fails
   }
 
+  // Gracefully migrate teachers table columns for full PUST faculty profile
+  const teacherExtraCols = [
+    `ALTER TABLE teachers ADD COLUMN qualification TEXT`,
+    `ALTER TABLE teachers ADD COLUMN research_area TEXT`,
+    `ALTER TABLE teachers ADD COLUMN publications_count INTEGER DEFAULT 0`,
+    `ALTER TABLE teachers ADD COLUMN photo_url TEXT`,
+    `ALTER TABLE teachers ADD COLUMN office_phone TEXT`,
+    `ALTER TABLE teachers ADD COLUMN personal_email TEXT`,
+    `ALTER TABLE teachers ADD COLUMN personal_phone TEXT`,
+    `ALTER TABLE teachers ADD COLUMN on_leave INTEGER DEFAULT 0`,
+    `ALTER TABLE teachers ADD COLUMN bio TEXT`,
+    `ALTER TABLE teachers ADD COLUMN profile_id TEXT`
+  ];
+  for (const q of teacherExtraCols) {
+    try { db.exec(q); } catch (e) { /* Column already exists */ }
+  }
+
   seedInitialData();
   ensureRichNotices();
   ensureUniversityCTMarks();
   ensureChairmanAccount();
   ensureFullCurriculum();
+  ensurePustFacultyMembers();
 }
 
 function seedInitialData() {
@@ -982,8 +1019,695 @@ function ensureFullCurriculum() {
   }
 }
 
+function ensurePustFacultyMembers() {
+  try {
+    const passTeacher = bcrypt.hashSync('Teacher@123', 10);
+
+    const pustFaculty = [
+      {
+        id: 't-100009',
+        userId: 'u-t-100009',
+        profileId: '100009',
+        firstName: 'Dr. Md. Abdur',
+        lastName: 'Rahim',
+        designation: 'Professor & Chairman',
+        email: 'rahim@pust.ac.bd',
+        personalEmail: 'rahim_bds@yahoo.com',
+        phone: '+8801728548300',
+        officePhone: '+8802588844876',
+        roomNumber: 'Chairman Office, Academic Bldg 3, PUST',
+        photoUrl: 'https://pust.ac.bd/includes/images/teachers/DSC08847 (1).jpg',
+        qualification: 'Ph.D. in Computer Science and Engineering',
+        researchArea: 'Human-Computer Interaction, Artificial Intelligence, Computer Vision, Signal Processing',
+        publicationsCount: 88,
+        onLeave: 0,
+        bio: 'Dr. Md. Abdur Rahim is currently serving as Professor and Chairman of the Department of Computer Science and Engineering at Pabna University of Science and Technology. He has published over 88 peer-reviewed research papers in high-impact international journals and conferences.',
+        currentCourses: [
+          {
+            courseCode: 'CSE-4101',
+            courseTitle: 'Artificial Intelligence & Neural Networks',
+            courseType: 'DEPARTMENT',
+            targetDept: 'CSE',
+            sessionName: 'Session 2023-2024',
+            semesterName: '4th Year 1st Semester',
+            creditHours: 3.0,
+            weeklySchedule: 'Sunday 10:00 AM, Wednesday 11:00 AM',
+            classEndDate: '2026-11-25',
+            studentsCount: 40
+          },
+          {
+            courseCode: 'CSE-4102',
+            courseTitle: 'Artificial Intelligence & Expert Systems Lab',
+            courseType: 'DEPARTMENT',
+            targetDept: 'CSE',
+            sessionName: 'Session 2023-2024',
+            semesterName: '4th Year 1st Semester',
+            creditHours: 1.5,
+            weeklySchedule: 'Tuesday 02:00 PM - 05:00 PM',
+            classEndDate: '2026-11-25',
+            studentsCount: 40
+          },
+          {
+            courseCode: 'CSE-1151',
+            courseTitle: 'Computer Fundamentals & Programming in C',
+            courseType: 'NON_DEPARTMENT',
+            targetDept: 'EEE Department',
+            sessionName: 'Session 2023-2024',
+            semesterName: '1st Year 1st Semester',
+            creditHours: 3.0,
+            weeklySchedule: 'Monday 10:00 AM, Thursday 11:00 AM',
+            classEndDate: '2026-11-30',
+            studentsCount: 45
+          }
+        ],
+        previousCourses: [
+          { courseCode: 'CSE-4201', courseTitle: 'Human Computer Interaction', sessionName: 'Session 2022-2023', semesterName: '4th Year 2nd Semester', targetDept: 'CSE', creditHours: 3.0, studentsCount: 40 },
+          { courseCode: 'CSE-3205', courseTitle: 'Computer Graphics & Animation', sessionName: 'Session 2022-2023', semesterName: '3rd Year 2nd Semester', targetDept: 'CSE', creditHours: 3.0, studentsCount: 40 },
+          { courseCode: 'CSE-1201', courseTitle: 'Object Oriented Programming', sessionName: 'Session 2021-2022', semesterName: '1st Year 2nd Semester', targetDept: 'CSE', creditHours: 3.0, studentsCount: 40 }
+        ]
+      },
+      {
+        id: 't-100003',
+        userId: 'u-t-100003',
+        profileId: '100003',
+        firstName: 'Md. Shafiul',
+        lastName: 'Azam',
+        designation: 'Associate Professor',
+        email: 'msacse@pust.ac.bd',
+        personalEmail: 'shahincseru@gmail.com',
+        phone: '+8801712615174',
+        officePhone: '+8802588844876',
+        roomNumber: 'Academic Bldg 3, Room 403',
+        photoUrl: 'https://pust.ac.bd/includes/images/teachers/PUST_100003_1.jpg',
+        qualification: 'B.Sc.(Hons.) and M.S. in Computer Science and Engineering (RU)',
+        researchArea: 'Image Processing, Pattern Recognition, Computer Vision, Machine Learning',
+        publicationsCount: 28,
+        onLeave: 0,
+        bio: 'Md. Shafiul Azam is an Associate Professor in CSE at PUST. His core expertise includes Digital Image Processing, Pattern Recognition, and Machine Learning with numerous international journal publications.',
+        currentCourses: [
+          {
+            courseCode: 'CSE-3103',
+            courseTitle: 'Operating Systems & System Architecture',
+            courseType: 'DEPARTMENT',
+            targetDept: 'CSE',
+            sessionName: 'Session 2023-2024',
+            semesterName: '3rd Year 1st Semester',
+            creditHours: 3.0,
+            weeklySchedule: 'Sunday 11:00 AM, Tuesday 10:00 AM',
+            classEndDate: '2026-11-20',
+            studentsCount: 40
+          },
+          {
+            courseCode: 'CSE-3104',
+            courseTitle: 'Operating Systems & Shell Scripting Lab',
+            courseType: 'DEPARTMENT',
+            targetDept: 'CSE',
+            sessionName: 'Session 2023-2024',
+            semesterName: '3rd Year 1st Semester',
+            creditHours: 1.5,
+            weeklySchedule: 'Monday 02:00 PM - 05:00 PM',
+            classEndDate: '2026-11-20',
+            studentsCount: 40
+          },
+          {
+            courseCode: 'CSE-2131',
+            courseTitle: 'C++ & Object Oriented Data Structures',
+            courseType: 'NON_DEPARTMENT',
+            targetDept: 'ICE Department',
+            sessionName: 'Session 2023-2024',
+            semesterName: '2nd Year 1st Semester',
+            creditHours: 3.0,
+            weeklySchedule: 'Wednesday 10:00 AM, Thursday 12:00 PM',
+            classEndDate: '2026-12-05',
+            studentsCount: 42
+          }
+        ],
+        previousCourses: [
+          { courseCode: 'CSE-4105', courseTitle: 'Digital Image Processing', sessionName: 'Session 2022-2023', semesterName: '4th Year 1st Semester', targetDept: 'CSE', creditHours: 3.0, studentsCount: 40 },
+          { courseCode: 'CSE-2101', courseTitle: 'Discrete Mathematics', sessionName: 'Session 2022-2023', semesterName: '2nd Year 1st Semester', targetDept: 'CSE', creditHours: 3.0, studentsCount: 40 },
+          { courseCode: 'CSE-3203', courseTitle: 'Pattern Recognition', sessionName: 'Session 2021-2022', semesterName: '3rd Year 2nd Semester', targetDept: 'CSE', creditHours: 3.0, studentsCount: 40 }
+        ]
+      },
+      {
+        id: 't-100002',
+        userId: 'u-t-100002',
+        profileId: '100002',
+        firstName: 'S. M. Hasan Sazzad',
+        lastName: 'Iqbal',
+        designation: 'Associate Professor',
+        email: 'sazzad@pust.ac.bd',
+        personalEmail: 'sazzadice@gmail.com',
+        phone: '+8801753622822',
+        officePhone: '+8802588844876',
+        roomNumber: 'Academic Bldg 3, Room 406',
+        photoUrl: 'https://pust.ac.bd/includes/images/teachers/IMG_20220424_0002.jpg',
+        qualification: 'B.Sc.(Hons.) and M.Sc. in Information & Communication Engineering',
+        researchArea: 'Wireless Network, Cloud Computing, IoT, Network Protocols & Security',
+        publicationsCount: 8,
+        onLeave: 0,
+        bio: 'S. M. Hasan Sazzad Iqbal has extensive teaching experience in Computer Networks, Wireless Systems, and Cloud Computing architectures.',
+        currentCourses: [
+          {
+            courseCode: 'CSE-3201',
+            courseTitle: 'Computer Networks & Internet Protocols',
+            courseType: 'DEPARTMENT',
+            targetDept: 'CSE',
+            sessionName: 'Session 2023-2024',
+            semesterName: '3rd Year 2nd Semester',
+            creditHours: 3.0,
+            weeklySchedule: 'Sunday 09:00 AM, Wednesday 02:00 PM',
+            classEndDate: '2026-11-28',
+            studentsCount: 40
+          },
+          {
+            courseCode: 'CSE-3202',
+            courseTitle: 'Computer Networks & Packet Tracer Lab',
+            courseType: 'DEPARTMENT',
+            targetDept: 'CSE',
+            sessionName: 'Session 2023-2024',
+            semesterName: '3rd Year 2nd Semester',
+            creditHours: 1.5,
+            weeklySchedule: 'Thursday 02:00 PM - 05:00 PM',
+            classEndDate: '2026-11-28',
+            studentsCount: 40
+          },
+          {
+            courseCode: 'CSE-1221',
+            courseTitle: 'Computer Programming in C',
+            courseType: 'NON_DEPARTMENT',
+            targetDept: 'Mathematics Department',
+            sessionName: 'Session 2023-2024',
+            semesterName: '1st Year 2nd Semester',
+            creditHours: 3.0,
+            weeklySchedule: 'Tuesday 09:00 AM, Thursday 10:00 AM',
+            classEndDate: '2026-12-10',
+            studentsCount: 50
+          }
+        ],
+        previousCourses: [
+          { courseCode: 'CSE-4207', courseTitle: 'Wireless & Mobile Communication', sessionName: 'Session 2022-2023', semesterName: '4th Year 2nd Semester', targetDept: 'CSE', creditHours: 3.0, studentsCount: 40 },
+          { courseCode: 'CSE-3107', courseTitle: 'Data Communication Systems', sessionName: 'Session 2021-2022', semesterName: '3rd Year 1st Semester', targetDept: 'CSE', creditHours: 3.0, studentsCount: 40 }
+        ]
+      },
+      {
+        id: 't-100016',
+        userId: 'u-t-100016',
+        profileId: '100016',
+        firstName: 'Dr. Md. Toukir',
+        lastName: 'Ahmed',
+        designation: 'Associate Professor',
+        email: 'toukir@pust.ac.bd',
+        personalEmail: 'toukirahmedreal@gmail.com',
+        phone: '+8801745983200',
+        officePhone: '+8802588844876',
+        roomNumber: 'Academic Bldg 3, Room 408',
+        photoUrl: 'https://pust.ac.bd/includes/images/teachers/IMG-0610.jpg',
+        qualification: 'Ph.D. with Data Science and Machine Learning',
+        researchArea: 'Hyperspectral Imaging, Precision Agriculture, Deep Learning, Image Analytics',
+        publicationsCount: 20,
+        onLeave: 0,
+        bio: 'Dr. Md. Toukir Ahmed specializes in Data Science, Hyperspectral Imaging, and applied Machine Learning models with over 20 top-tier publications.',
+        currentCourses: [
+          {
+            courseCode: 'CSE-3101',
+            courseTitle: 'Database Management Systems',
+            courseType: 'DEPARTMENT',
+            targetDept: 'CSE',
+            sessionName: 'Session 2023-2024',
+            semesterName: '3rd Year 1st Semester',
+            creditHours: 3.0,
+            weeklySchedule: 'Monday 09:00 AM, Wednesday 10:00 AM',
+            classEndDate: '2026-11-22',
+            studentsCount: 40
+          },
+          {
+            courseCode: 'CSE-3102',
+            courseTitle: 'Database Management Systems Lab',
+            courseType: 'DEPARTMENT',
+            targetDept: 'CSE',
+            sessionName: 'Session 2023-2024',
+            semesterName: '3rd Year 1st Semester',
+            creditHours: 1.5,
+            weeklySchedule: 'Tuesday 11:00 AM - 01:00 PM',
+            classEndDate: '2026-11-22',
+            studentsCount: 40
+          },
+          {
+            courseCode: 'CSE-3181',
+            courseTitle: 'Scientific Programming & Data Analytics',
+            courseType: 'NON_DEPARTMENT',
+            targetDept: 'Physics Department',
+            sessionName: 'Session 2023-2024',
+            semesterName: '3rd Year 1st Semester',
+            creditHours: 3.0,
+            weeklySchedule: 'Sunday 02:00 PM, Thursday 09:00 AM',
+            classEndDate: '2026-12-02',
+            studentsCount: 38
+          }
+        ],
+        previousCourses: [
+          { courseCode: 'CSE-4215', courseTitle: 'Data Mining & Warehousing', sessionName: 'Session 2022-2023', semesterName: '4th Year 2nd Semester', targetDept: 'CSE', creditHours: 3.0, studentsCount: 40 },
+          { courseCode: 'CSE-2201', courseTitle: 'Design and Analysis of Algorithms', sessionName: 'Session 2022-2023', semesterName: '2nd Year 2nd Semester', targetDept: 'CSE', creditHours: 3.0, studentsCount: 40 }
+        ]
+      },
+      {
+        id: 't-100010',
+        userId: 'u-t-100010',
+        profileId: '100010',
+        firstName: 'Dr. Md. Khaled',
+        lastName: 'Ben Islam',
+        designation: 'Associate Professor',
+        email: 'khaled@pust.ac.bd',
+        personalEmail: 'khaled.islam@griffith.edu.au',
+        phone: '+8801711223399',
+        officePhone: '+8802588844876',
+        roomNumber: 'Academic Bldg 3, Room 410',
+        photoUrl: 'https://pust.ac.bd/includes/images/teachers/PUST_100010.jpg',
+        qualification: 'Ph.D. (Griffith University, Australia)',
+        researchArea: 'IoT, Cyber Security, Cryptography, Distributed Systems, Blockchain',
+        publicationsCount: 15,
+        onLeave: 0,
+        bio: 'Dr. Md. Khaled Ben Islam earned his doctorate from Griffith University, Australia. His research interests span IoT security, cryptographic protocols, and secure system architectures.',
+        currentCourses: [
+          {
+            courseCode: 'CSE-4203',
+            courseTitle: 'Cryptography & Network Security',
+            courseType: 'DEPARTMENT',
+            targetDept: 'CSE',
+            sessionName: 'Session 2023-2024',
+            semesterName: '4th Year 2nd Semester',
+            creditHours: 3.0,
+            weeklySchedule: 'Sunday 12:00 PM, Tuesday 12:00 PM',
+            classEndDate: '2026-12-01',
+            studentsCount: 40
+          },
+          {
+            courseCode: 'CSE-4204',
+            courseTitle: 'Information Security Lab',
+            courseType: 'DEPARTMENT',
+            targetDept: 'CSE',
+            sessionName: 'Session 2023-2024',
+            semesterName: '4th Year 2nd Semester',
+            creditHours: 1.5,
+            weeklySchedule: 'Wednesday 02:00 PM - 05:00 PM',
+            classEndDate: '2026-12-01',
+            studentsCount: 40
+          },
+          {
+            courseCode: 'CSE-2191',
+            courseTitle: 'Cyber Security & Digital Literacy',
+            courseType: 'NON_DEPARTMENT',
+            targetDept: 'Business Administration (BBA)',
+            sessionName: 'Session 2023-2024',
+            semesterName: '2nd Year 1st Semester',
+            creditHours: 3.0,
+            weeklySchedule: 'Monday 03:00 PM - 05:00 PM',
+            classEndDate: '2026-12-08',
+            studentsCount: 60
+          }
+        ],
+        previousCourses: [
+          { courseCode: 'CSE-4121', courseTitle: 'Blockchain Technologies', sessionName: 'Session 2022-2023', semesterName: '4th Year 1st Semester', targetDept: 'CSE', creditHours: 3.0, studentsCount: 40 },
+          { courseCode: 'CSE-3105', courseTitle: 'Microprocessors & Assembly Language', sessionName: 'Session 2021-2022', semesterName: '3rd Year 1st Semester', targetDept: 'CSE', creditHours: 3.0, studentsCount: 40 }
+        ]
+      },
+      {
+        id: 't-100005',
+        userId: 'u-t-100005',
+        profileId: '100005',
+        firstName: 'Md.',
+        lastName: 'Mursalin',
+        designation: 'Assistant Professor (On Study Leave)',
+        email: 'mursalin@pust.ac.bd',
+        personalEmail: 'm_mursalin@yahoo.com',
+        phone: '+8801778110026',
+        officePhone: '+8802588844876',
+        roomNumber: 'Academic Bldg 3, Room 412',
+        photoUrl: 'https://pust.ac.bd/includes/images/teachers/IMG_1111.jpg',
+        qualification: 'M.Sc. Eng. (China), B.Sc. Engg. (CSE)',
+        researchArea: 'Machine Learning, Computational Intelligence, Signal Processing',
+        publicationsCount: 6,
+        onLeave: 1,
+        bio: 'Md. Mursalin is currently pursuing doctoral studies abroad on official study leave. His research involves advanced machine learning algorithms and signal processing.',
+        currentCourses: [],
+        previousCourses: [
+          { courseCode: 'CSE-2203', courseTitle: 'Digital Logic Design', sessionName: 'Session 2021-2022', semesterName: '2nd Year 2nd Semester', targetDept: 'CSE', creditHours: 3.0, studentsCount: 40 },
+          { courseCode: 'CSE-2204', courseTitle: 'Digital Logic Design Lab', sessionName: 'Session 2021-2022', semesterName: '2nd Year 2nd Semester', targetDept: 'CSE', creditHours: 1.5, studentsCount: 40 },
+          { courseCode: 'CSE-1101', courseTitle: 'Structured Programming Language', sessionName: 'Session 2020-2021', semesterName: '1st Year 1st Semester', targetDept: 'CSE', creditHours: 3.0, studentsCount: 40 }
+        ]
+      },
+      {
+        id: 't-100007',
+        userId: 'u-t-100007',
+        profileId: '100007',
+        firstName: 'Md. Kislu',
+        lastName: 'Noman',
+        designation: 'Assistant Professor (On Study Leave)',
+        email: 'noman@pust.ac.bd',
+        personalEmail: 'md.k.noman@gmail.com',
+        phone: '+8801717265859',
+        officePhone: '+8802588844876',
+        roomNumber: 'Academic Bldg 3, Room 414',
+        photoUrl: 'https://pust.ac.bd/includes/images/teachers/48367994_378186552956451_413311768115281920_n.jpg',
+        qualification: 'M.Sc. in Computer Science',
+        researchArea: 'Data Science, Machine Learning, Natural Language Processing',
+        publicationsCount: 8,
+        onLeave: 1,
+        bio: 'Md. Kislu Noman is an Assistant Professor currently on study leave for Ph.D. research in Natural Language Processing and Data Science.',
+        currentCourses: [],
+        previousCourses: [
+          { courseCode: 'CSE-2103', courseTitle: 'Data Structures & Algorithms', sessionName: 'Session 2021-2022', semesterName: '2nd Year 1st Semester', targetDept: 'CSE', creditHours: 3.0, studentsCount: 40 },
+          { courseCode: 'CSE-2104', courseTitle: 'Data Structures Lab', sessionName: 'Session 2021-2022', semesterName: '2nd Year 1st Semester', targetDept: 'CSE', creditHours: 1.5, studentsCount: 40 },
+          { courseCode: 'CSE-3207', courseTitle: 'Web Engineering', sessionName: 'Session 2020-2021', semesterName: '3rd Year 2nd Semester', targetDept: 'CSE', creditHours: 3.0, studentsCount: 40 }
+        ]
+      },
+      {
+        id: 't-100011',
+        userId: 'u-t-100011',
+        profileId: '100011',
+        firstName: 'Md. Mahmudul',
+        lastName: 'Hasan',
+        designation: 'Assistant Professor (On Study Leave)',
+        email: 'mahmudul.cse@pust.ac.bd',
+        personalEmail: 'mukul_cse_ruet@yahoo.com',
+        phone: '+8801718899221',
+        officePhone: '0731-64876',
+        roomNumber: 'Academic Bldg 3, Room 415',
+        photoUrl: 'https://pust.ac.bd/includes/images/teachers/IMG_7642_1.JPG',
+        qualification: 'B.Sc Engg. (CSE, RUET)',
+        researchArea: 'Data Mining, Machine Learning, Computational Algorithms',
+        publicationsCount: 5,
+        onLeave: 1,
+        bio: 'Md. Mahmudul Hasan graduated from RUET and is currently on official study leave pursuing higher research in Machine Learning.',
+        currentCourses: [],
+        previousCourses: [
+          { courseCode: 'CSE-1203', courseTitle: 'Object Oriented Programming in Java', sessionName: 'Session 2021-2022', semesterName: '1st Year 2nd Semester', targetDept: 'CSE', creditHours: 3.0, studentsCount: 40 },
+          { courseCode: 'CSE-3109', courseTitle: 'Theory of Computation', sessionName: 'Session 2020-2021', semesterName: '3rd Year 1st Semester', targetDept: 'CSE', creditHours: 3.0, studentsCount: 40 }
+        ]
+      },
+      {
+        id: 't-100012',
+        userId: 'u-t-100012',
+        profileId: '100012',
+        firstName: 'Dr. Md. Niaz',
+        lastName: 'Imtiaz',
+        designation: 'Assistant Professor',
+        email: 'niaz.cse@pust.ac.bd',
+        personalEmail: 'imtiaz.cse.buet@gmail.com',
+        phone: '+8801334981050',
+        officePhone: '+8802588844876',
+        roomNumber: 'Academic Bldg 3, Room 405',
+        photoUrl: 'https://pust.ac.bd/includes/images/teachers/PUST_100012.jpg',
+        qualification: 'Ph.D (TMU, Canada), B.Sc. Engg. (CSE, BUET)',
+        researchArea: 'Machine Learning, Photonics, Cyber-Physical Systems, Deep Learning',
+        publicationsCount: 12,
+        onLeave: 0,
+        bio: 'Dr. Md. Niaz Imtiaz completed his B.Sc. from BUET and Ph.D. from Toronto Metropolitan University (TMU), Canada. His research centers on Machine Learning applications in photonic systems.',
+        currentCourses: [
+          {
+            courseCode: 'CSE-2201',
+            courseTitle: 'Design & Analysis of Algorithms',
+            courseType: 'DEPARTMENT',
+            targetDept: 'CSE',
+            sessionName: 'Session 2023-2024',
+            semesterName: '2nd Year 2nd Semester',
+            creditHours: 3.0,
+            weeklySchedule: 'Sunday 10:00 AM, Tuesday 11:00 AM',
+            classEndDate: '2026-11-20',
+            studentsCount: 40
+          },
+          {
+            courseCode: 'CSE-2202',
+            courseTitle: 'Algorithms Analysis Lab',
+            courseType: 'DEPARTMENT',
+            targetDept: 'CSE',
+            sessionName: 'Session 2023-2024',
+            semesterName: '2nd Year 2nd Semester',
+            creditHours: 1.5,
+            weeklySchedule: 'Monday 02:00 PM - 05:00 PM',
+            classEndDate: '2026-11-20',
+            studentsCount: 40
+          },
+          {
+            courseCode: 'CSE-1141',
+            courseTitle: 'Computer Programming Techniques',
+            courseType: 'NON_DEPARTMENT',
+            targetDept: 'Civil Engineering (CE)',
+            sessionName: 'Session 2023-2024',
+            semesterName: '1st Year 1st Semester',
+            creditHours: 3.0,
+            weeklySchedule: 'Wednesday 11:00 AM, Thursday 02:00 PM',
+            classEndDate: '2026-12-05',
+            studentsCount: 50
+          }
+        ],
+        previousCourses: [
+          { courseCode: 'CSE-4109', courseTitle: 'Machine Learning & Deep Neural Nets', sessionName: 'Session 2022-2023', semesterName: '4th Year 1st Semester', targetDept: 'CSE', creditHours: 3.0, studentsCount: 40 },
+          { courseCode: 'CSE-2101', courseTitle: 'Discrete Mathematics', sessionName: 'Session 2022-2023', semesterName: '2nd Year 1st Semester', targetDept: 'CSE', creditHours: 3.0, studentsCount: 40 }
+        ]
+      },
+      {
+        id: 't-100214',
+        userId: 'u-t-100214',
+        profileId: '100214',
+        firstName: 'Nitun Kumar',
+        lastName: 'Podder',
+        designation: 'Assistant Professor',
+        email: 'nitun@pust.ac.bd',
+        personalEmail: 'nituncse@gmail.com',
+        phone: '+8801720543366',
+        officePhone: '+8802588844876',
+        roomNumber: 'Academic Bldg 3, Room 407',
+        photoUrl: 'https://pust.ac.bd/includes/images/teachers/DSC08895.jpg',
+        qualification: 'B.Sc Engg. (CSE, PUST), M.Sc. Engg. (CSE)',
+        researchArea: 'Bioinformatics, Computational Genomics, Machine Learning, Deep Learning',
+        publicationsCount: 56,
+        onLeave: 0,
+        bio: 'Nitun Kumar Podder is an Assistant Professor with over 56 research publications in leading bioinformatics and computational biology venues.',
+        currentCourses: [
+          {
+            courseCode: 'CSE-2103',
+            courseTitle: 'Data Structures',
+            courseType: 'DEPARTMENT',
+            targetDept: 'CSE',
+            sessionName: 'Session 2023-2024',
+            semesterName: '2nd Year 1st Semester',
+            creditHours: 3.0,
+            weeklySchedule: 'Monday 10:00 AM, Wednesday 09:00 AM',
+            classEndDate: '2026-11-18',
+            studentsCount: 40
+          },
+          {
+            courseCode: 'CSE-2104',
+            courseTitle: 'Data Structures Practical Lab',
+            courseType: 'DEPARTMENT',
+            targetDept: 'CSE',
+            sessionName: 'Session 2023-2024',
+            semesterName: '2nd Year 1st Semester',
+            creditHours: 1.5,
+            weeklySchedule: 'Sunday 02:00 PM - 05:00 PM',
+            classEndDate: '2026-11-18',
+            studentsCount: 40
+          },
+          {
+            courseCode: 'CSE-2111',
+            courseTitle: 'Computational Biology & Health Informatics',
+            courseType: 'NON_DEPARTMENT',
+            targetDept: 'Pharmacy Department',
+            sessionName: 'Session 2023-2024',
+            semesterName: '2nd Year 1st Semester',
+            creditHours: 2.0,
+            weeklySchedule: 'Thursday 10:00 AM - 12:00 PM',
+            classEndDate: '2026-12-02',
+            studentsCount: 40
+          }
+        ],
+        previousCourses: [
+          { courseCode: 'CSE-4217', courseTitle: 'Bioinformatics & Computational Genomics', sessionName: 'Session 2022-2023', semesterName: '4th Year 2nd Semester', targetDept: 'CSE', creditHours: 3.0, studentsCount: 40 },
+          { courseCode: 'CSE-1101', courseTitle: 'Structured Programming Language', sessionName: 'Session 2022-2023', semesterName: '1st Year 1st Semester', targetDept: 'CSE', creditHours: 3.0, studentsCount: 40 }
+        ]
+      },
+      {
+        id: 't-100228',
+        userId: 'u-t-100228',
+        profileId: '100228',
+        firstName: 'Nakib Aman',
+        lastName: 'Turzo',
+        designation: 'Assistant Professor',
+        email: 'nakib.cse@pust.ac.bd',
+        personalEmail: 'nakibaman@gmail.com',
+        phone: '+8801762910933',
+        officePhone: '+8802588844876',
+        roomNumber: 'Academic Bldg 3, Room 409',
+        photoUrl: 'https://pust.ac.bd/includes/images/teachers/Nakib-Aman-Turzo.jpg',
+        qualification: 'M.Sc. Engineering in CSE, B.Sc. Engg. (CSE, PUST)',
+        researchArea: 'Augmented Reality, Virtual Reality, Human-Computer Interaction, Machine Learning',
+        publicationsCount: 72,
+        onLeave: 0,
+        bio: 'Nakib Aman is an Assistant Professor at PUST. He is an active researcher in Augmented Reality, Virtual Reality, and Human-Computer Interaction with 72+ scholarly publications.',
+        currentCourses: [
+          {
+            courseCode: 'CSE-1101',
+            courseTitle: 'Structured Programming Language in C',
+            courseType: 'DEPARTMENT',
+            targetDept: 'CSE',
+            sessionName: 'Session 2023-2024',
+            semesterName: '1st Year 1st Semester',
+            creditHours: 3.0,
+            weeklySchedule: 'Sunday 11:00 AM, Tuesday 09:00 AM, Thursday 10:00 AM',
+            classEndDate: '2026-11-15',
+            studentsCount: 40
+          },
+          {
+            courseCode: 'CSE-1102',
+            courseTitle: 'Structured Programming in C Lab',
+            courseType: 'DEPARTMENT',
+            targetDept: 'CSE',
+            sessionName: 'Session 2023-2024',
+            semesterName: '1st Year 1st Semester',
+            creditHours: 1.5,
+            weeklySchedule: 'Wednesday 11:00 AM - 01:00 PM',
+            classEndDate: '2026-11-15',
+            studentsCount: 40
+          },
+          {
+            courseCode: 'CSE-1105',
+            courseTitle: 'Information Technology in Public Governance',
+            courseType: 'NON_DEPARTMENT',
+            targetDept: 'Public Administration',
+            sessionName: 'Session 2023-2024',
+            semesterName: '1st Year 1st Semester',
+            creditHours: 2.0,
+            weeklySchedule: 'Monday 12:00 PM - 02:00 PM',
+            classEndDate: '2026-12-10',
+            studentsCount: 45
+          }
+        ],
+        previousCourses: [
+          { courseCode: 'CSE-3205', courseTitle: 'Computer Graphics & Virtual Reality', sessionName: 'Session 2022-2023', semesterName: '3rd Year 2nd Semester', targetDept: 'CSE', creditHours: 3.0, studentsCount: 40 },
+          { courseCode: 'CSE-4209', courseTitle: 'Mobile Application Development', sessionName: 'Session 2022-2023', semesterName: '4th Year 2nd Semester', targetDept: 'CSE', creditHours: 3.0, studentsCount: 40 }
+        ]
+      }
+    ];
+
+    const insertUser = db.prepare(`
+      INSERT INTO users (id, email, password_hash, role, status, first_name, last_name, phone_number)
+      VALUES (?, ?, ?, 'TEACHER', 'ACTIVE', ?, ?, ?)
+      ON CONFLICT(email) DO UPDATE SET
+        first_name = excluded.first_name,
+        last_name = excluded.last_name,
+        phone_number = excluded.phone_number
+    `);
+
+    const insertOrUpdateTeacher = db.prepare(`
+      INSERT INTO teachers (id, user_id, designation, department_code, room_number, qualification, research_area, publications_count, photo_url, office_phone, personal_email, personal_phone, on_leave, bio, profile_id)
+      VALUES (?, ?, ?, 'CSE', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(id) DO UPDATE SET
+        designation = excluded.designation,
+        room_number = excluded.room_number,
+        qualification = excluded.qualification,
+        research_area = excluded.research_area,
+        publications_count = excluded.publications_count,
+        photo_url = excluded.photo_url,
+        office_phone = excluded.office_phone,
+        personal_email = excluded.personal_email,
+        personal_phone = excluded.personal_phone,
+        on_leave = excluded.on_leave,
+        bio = excluded.bio,
+        profile_id = excluded.profile_id
+    `);
+
+    const insertCourse = db.prepare(`
+      INSERT INTO teacher_courses (id, teacher_id, course_code, course_title, course_type, target_dept, session_name, semester_name, credit_hours, weekly_schedule, class_end_date, is_current, students_count)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(id) DO NOTHING
+    `);
+
+    for (const fac of pustFaculty) {
+      // 1. Ensure user
+      insertUser.run(fac.userId, fac.email, passTeacher, fac.firstName, fac.lastName, fac.phone);
+
+      // Find user id in case user already existed with different id
+      const user = db.prepare('SELECT id FROM users WHERE email = ?').get(fac.email);
+      const activeUserId = user ? user.id : fac.userId;
+
+      // 2. Ensure teacher record
+      insertOrUpdateTeacher.run(
+        fac.id,
+        activeUserId,
+        fac.designation,
+        fac.roomNumber,
+        fac.qualification,
+        fac.researchArea,
+        fac.publicationsCount,
+        fac.photoUrl,
+        fac.officePhone,
+        fac.personalEmail,
+        fac.phone,
+        fac.onLeave,
+        fac.bio,
+        fac.profileId
+      );
+
+      // 3. Clear existing teacher_courses for idempotency and re-insert
+      db.prepare('DELETE FROM teacher_courses WHERE teacher_id = ?').run(fac.id);
+
+      // Current Courses (Department & Non-Department)
+      if (Array.isArray(fac.currentCourses)) {
+        for (let i = 0; i < fac.currentCourses.length; i++) {
+          const c = fac.currentCourses[i];
+          const courseId = `tc-${fac.profileId}-curr-${i}`;
+          insertCourse.run(
+            courseId,
+            fac.id,
+            c.courseCode,
+            c.courseTitle,
+            c.courseType,
+            c.targetDept,
+            c.sessionName,
+            c.semesterName,
+            c.creditHours,
+            c.weeklySchedule,
+            c.classEndDate,
+            1,
+            c.studentsCount
+          );
+        }
+      }
+
+      // Previous Courses (History)
+      if (Array.isArray(fac.previousCourses)) {
+        for (let i = 0; i < fac.previousCourses.length; i++) {
+          const pc = fac.previousCourses[i];
+          const courseId = `tc-${fac.profileId}-prev-${i}`;
+          insertCourse.run(
+            courseId,
+            fac.id,
+            pc.courseCode,
+            pc.courseTitle,
+            'DEPARTMENT',
+            pc.targetDept || 'CSE',
+            pc.sessionName,
+            pc.semesterName,
+            pc.creditHours,
+            'Completed',
+            '2024-05-30',
+            0,
+            pc.studentsCount || 40
+          );
+        }
+      }
+    }
+
+    console.log('[Database] Synchronized all 11 official PUST CSE faculty members, qualifications, research, department & non-department courses with countdown deadlines.');
+  } catch (err) {
+    console.error('[Database] Failed to ensure PUST faculty members:', err.message);
+  }
+}
+
 module.exports = {
   db,
   initializeDatabase,
 };
+
 
