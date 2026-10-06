@@ -367,6 +367,7 @@ router.get('/curriculum', authenticateUser, (req, res) => {
 
     return {
       ...sem,
+      semester_id: sem.id,
       courses,
       total_credits: courses.reduce((sum, c) => sum + (c.credit_hours || 0), 0)
     };

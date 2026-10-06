@@ -3,6 +3,7 @@ const bcrypt = require('bcryptjs');
 const fs = require('fs');
 const path = require('path');
 const config = require('../config');
+const { CURRICULUM_COURSES, SEMESTERS_METADATA } = require('./curriculumData');
 
 // Ensure upload directory exists
 if (!fs.existsSync(config.UPLOAD_DIR)) {
@@ -79,10 +80,48 @@ function initializeDatabase() {
       course_code TEXT NOT NULL,
       course_title TEXT NOT NULL,
       credit_hours REAL NOT NULL,
-      course_type TEXT DEFAULT 'THEORY',
+      course_type TEXT DEFAULT 'Theory',
+      year INTEGER,
+      semester INTEGER,
+      term_code TEXT,
+      is_optional INTEGER DEFAULT 0,
+      elective_group TEXT,
       syllabus_outline TEXT,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       UNIQUE (semester_id, course_code)
+    );
+
+    -- 6B. COURSE ENROLLMENTS (Student Enrollment in Core & Elective Courses)
+    CREATE TABLE IF NOT EXISTS course_enrollments (
+      id TEXT PRIMARY KEY,
+      student_id TEXT NOT NULL REFERENCES students(id) ON DELETE CASCADE,
+      course_id TEXT NOT NULL REFERENCES courses(id) ON DELETE CASCADE,
+      session_id TEXT NOT NULL REFERENCES academic_sessions(id) ON DELETE CASCADE,
+      semester_id TEXT NOT NULL REFERENCES semesters(id) ON DELETE CASCADE,
+      enrollment_status TEXT CHECK(enrollment_status IN ('ENROLLED', 'DROPPED', 'COMPLETED', 'PENDING')) DEFAULT 'ENROLLED',
+      enrollment_type TEXT CHECK(enrollment_type IN ('REGULAR', 'RETAKE', 'RECIEVE', 'IMPROVEMENT')) DEFAULT 'REGULAR',
+      enrolled_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE (student_id, course_id)
+    );
+
+    -- 6C. STUDENT RESULTS (Continuous Assessment /30 + Final Exam /70 + SGPA + CGPA)
+    CREATE TABLE IF NOT EXISTS student_results (
+      id TEXT PRIMARY KEY,
+      student_id TEXT NOT NULL REFERENCES students(id) ON DELETE CASCADE,
+      course_id TEXT NOT NULL REFERENCES courses(id) ON DELETE CASCADE,
+      session_id TEXT NOT NULL REFERENCES academic_sessions(id) ON DELETE CASCADE,
+      semester_id TEXT NOT NULL REFERENCES semesters(id) ON DELETE CASCADE,
+      continuous_assessment_marks REAL DEFAULT 0,
+      final_exam_marks REAL DEFAULT 0,
+      total_marks REAL DEFAULT 0,
+      grade_point REAL DEFAULT 0.00,
+      letter_grade TEXT DEFAULT 'F',
+      credits_earned REAL DEFAULT 0.0,
+      is_passed INTEGER DEFAULT 0,
+      status TEXT DEFAULT 'PUBLISHED',
+      published_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE (student_id, course_id)
     );
 
     -- 7. COURSE ASSIGNMENTS (Office assigns designated Teacher to a Course)
@@ -229,6 +268,41 @@ function initializeDatabase() {
     try { db.exec(q); } catch (e) { /* Column already exists */ }
   }
 
+  // Gracefully migrate courses table columns for full curriculum tracking
+  const courseExtraCols = [
+    `ALTER TABLE courses ADD COLUMN year INTEGER`,
+    `ALTER TABLE courses ADD COLUMN semester INTEGER`,
+    `ALTER TABLE courses ADD COLUMN term_code TEXT`,
+    `ALTER TABLE courses ADD COLUMN is_optional INTEGER DEFAULT 0`,
+    `ALTER TABLE courses ADD COLUMN elective_group TEXT`
+  ];
+  for (const q of courseExtraCols) {
+    try { db.exec(q); } catch (e) { /* Column already exists */ }
+  }
+
+  // Gracefully migrate semesters table columns
+  const semesterExtraCols = [
+    `ALTER TABLE semesters ADD COLUMN year INTEGER`,
+    `ALTER TABLE semesters ADD COLUMN semester INTEGER`
+  ];
+  for (const q of semesterExtraCols) {
+    try { db.exec(q); } catch (e) { /* Column already exists */ }
+  }
+
+  // Curriculum, enrollment, and results indexes
+  const extraIndexes = [
+    `CREATE INDEX IF NOT EXISTS idx_courses_year_sem ON courses(year, semester)`,
+    `CREATE INDEX IF NOT EXISTS idx_courses_term_code ON courses(term_code)`,
+    `CREATE INDEX IF NOT EXISTS idx_courses_type ON courses(course_type)`,
+    `CREATE INDEX IF NOT EXISTS idx_course_enrollments_student ON course_enrollments(student_id, semester_id)`,
+    `CREATE INDEX IF NOT EXISTS idx_course_enrollments_course ON course_enrollments(course_id)`,
+    `CREATE INDEX IF NOT EXISTS idx_student_results_student ON student_results(student_id, semester_id)`,
+    `CREATE INDEX IF NOT EXISTS idx_student_results_course ON student_results(course_id)`
+  ];
+  for (const q of extraIndexes) {
+    try { db.exec(q); } catch (e) { /* Index already exists */ }
+  }
+
   seedInitialData();
   ensureRichNotices();
   ensureUniversityCTMarks();
@@ -305,41 +379,56 @@ function seedInitialData() {
   const insertCourse = db.prepare(`
     INSERT INTO courses (id, semester_id, course_code, course_title, credit_hours, course_type, syllabus_outline)
     VALUES (?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(id) DO UPDATE SET
+      course_code = excluded.course_code,
+      course_title = excluded.course_title,
+      credit_hours = excluded.credit_hours,
+      course_type = excluded.course_type,
+      syllabus_outline = excluded.syllabus_outline
   `);
   insertCourse.run(
     'c-cse3101',
     'sem-y3s1',
-    'CSE-3101',
+    'CSE 3101',
+    'Computer Architecture and Organization',
+    3.0,
+    'Theory',
+    'Instruction set architecture, CPU datapath, pipelining, memory hierarchy, cache coherence, and parallel architectures.'
+  );
+  insertCourse.run(
+    'c-cse3107',
+    'sem-y3s1',
+    'CSE 3107',
     'Database Management Systems',
     3.0,
-    'THEORY',
+    'Theory',
     'Relational algebra, SQL, E-R modeling, Normalization, Query Processing, Transactions, Concurrency Control, and Recovery protocols.'
   );
   insertCourse.run(
-    'c-cse3102',
+    'c-cse3108',
     'sem-y3s1',
-    'CSE-3102',
-    'Database Management Systems Sessional (Lab)',
+    'CSE 3108',
+    'Database Management Systems Sessional',
     1.5,
-    'LAB',
+    'Sessional',
     'Practical hands-on database design with PostgreSQL, indexing benchmarks, stored procedures, triggers, and full-stack integration.'
-  );
-  insertCourse.run(
-    'c-cse3103',
-    'sem-y3s1',
-    'CSE-3103',
-    'Operating Systems & System Architecture',
-    3.0,
-    'THEORY',
-    'Process scheduling, Inter-process Communication, Semaphores, Deadlocks, Memory Management, Virtual Memory, and File Systems.'
   );
   insertCourse.run(
     'c-cse1101',
     'sem-y1s1',
-    'CSE-1101',
+    'CSE 1101',
+    'Computer Fundamentals',
+    3.0,
+    'Theory',
+    'Introduction to computer systems, hardware architectures, CPU organization, memory hierarchy, system software, and number systems.'
+  );
+  insertCourse.run(
+    'c-cse1103',
+    'sem-y1s1',
+    'CSE 1103',
     'Structured Programming Language',
     3.0,
-    'THEORY',
+    'Theory',
     'Fundamentals of algorithms, C language syntax, control structures, pointers, dynamic memory allocation, and file operations.'
   );
 
@@ -347,22 +436,24 @@ function seedInitialData() {
   const insertAssignment = db.prepare(`
     INSERT INTO course_assignments (id, course_id, teacher_id, assigned_by)
     VALUES (?, ?, ?, ?)
+    ON CONFLICT(course_id, teacher_id) DO NOTHING
   `);
-  // Dr. Rahman teaches CSE-3101 and CSE-3103
+  // Dr. Rahman teaches CSE 3101 and CSE 3107
   insertAssignment.run('ca-1', 'c-cse3101', 't-1', 'u-office');
-  insertAssignment.run('ca-2', 'c-cse3103', 't-1', 'u-office');
-  // Dr. Fatima teaches CSE-3102 (Lab) and CSE-1101
-  insertAssignment.run('ca-3', 'c-cse3102', 't-2', 'u-office');
-  insertAssignment.run('ca-4', 'c-cse1101', 't-2', 'u-office');
+  insertAssignment.run('ca-2', 'c-cse3107', 't-1', 'u-office');
+  // Dr. Fatima teaches CSE 3108 (Sessional) and CSE 1103
+  insertAssignment.run('ca-3', 'c-cse3108', 't-2', 'u-office');
+  insertAssignment.run('ca-4', 'c-cse1103', 't-2', 'u-office');
 
   // 8. Course Materials
   const insertMaterial = db.prepare(`
     INSERT INTO course_materials (id, course_id, uploaded_by, title, description, file_url, file_type, file_size_bytes)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(id) DO NOTHING
   `);
   insertMaterial.run(
     'mat-1',
-    'c-cse3101',
+    'c-cse3107',
     't-1',
     'Lecture 01-03: Relational Algebra & SQL Mastery',
     'Official slides covering relational model, tuple relational calculus, and advanced nested queries.',
@@ -372,7 +463,7 @@ function seedInitialData() {
   );
   insertMaterial.run(
     'mat-2',
-    'c-cse3101',
+    'c-cse3107',
     't-1',
     'Complete Course Outline & Reference Textbooks 2026',
     'Recommended textbooks: Silberschatz Database System Concepts 7th Ed, Garcia-Molina Database Systems Complete Book.',
@@ -634,354 +725,160 @@ function ensureChairmanAccount() {
 
 function ensureFullCurriculum() {
   try {
-    const sessionId = 'sess-2023-24';
-    
-    // 1. Ensure all 8 standard semesters exist
-    const semestersList = [
-      { id: 'sem-y1s1', name: '1st Year 1st Semester', term: 'Y1S1', active: 0 },
-      { id: 'sem-y1s2', name: '1st Year 2nd Semester', term: 'Y1S2', active: 0 },
-      { id: 'sem-y2s1', name: '2nd Year 1st Semester', term: 'Y2S1', active: 0 },
-      { id: 'sem-y2s2', name: '2nd Year 2nd Semester', term: 'Y2S2', active: 0 },
-      { id: 'sem-y3s1', name: '3rd Year 1st Semester', term: 'Y3S1', active: 1 },
-      { id: 'sem-y3s2', name: '3rd Year 2nd Semester', term: 'Y3S2', active: 0 },
-      { id: 'sem-y4s1', name: '4th Year 1st Semester', term: 'Y4S1', active: 0 },
-      { id: 'sem-y4s2', name: '4th Year 2nd Semester', term: 'Y4S2', active: 0 },
-    ];
-
-    const insertSem = db.prepare(`
-      INSERT INTO semesters (id, session_id, semester_name, term_code, is_active)
-      VALUES (?, ?, ?, ?, ?)
-      ON CONFLICT(session_id, term_code) DO UPDATE SET
-        semester_name = excluded.semester_name
-    `);
-
-    for (const sem of semestersList) {
-      insertSem.run(sem.id, sessionId, sem.name, sem.term, sem.active);
+    // 1. Get all academic sessions to populate official curriculum
+    let sessions = db.prepare('SELECT id, session_name FROM academic_sessions').all();
+    if (!sessions || sessions.length === 0) {
+      sessions = [{ id: 'sess-2023-24', session_name: 'Session 2023-2024' }];
     }
 
-    // 2. Comprehensive Course List across all 8 Semesters
-    const standardCourses = [
-      // 1st Year 1st Semester
-      {
-        id: 'c-cse1101',
-        semId: 'sem-y1s1',
-        code: 'CSE-1101',
-        title: 'Structured Programming Language',
-        credits: 3.0,
-        type: 'THEORY',
-        syllabus: 'Introduction to programming paradigms, C language syntax, data types, operators, branching and loops, modular functions, arrays, strings, recursion, pointers, structures, dynamic memory allocation, and disk file I/O operations.'
-      },
-      {
-        id: 'c-cse1102',
-        semId: 'sem-y1s1',
-        code: 'CSE-1102',
-        title: 'Structured Programming Language Sessional (Lab)',
-        credits: 1.5,
-        type: 'LAB',
-        syllabus: 'Practical implementation of C programming concepts: algorithmic problem-solving on online judges, debugging techniques, pointer arithmetic, string processing, and a mini-project developed in C.'
-      },
-      {
-        id: 'c-eee1103',
-        semId: 'sem-y1s1',
-        code: 'EEE-1103',
-        title: 'Basic Electrical & Electronic Engineering',
-        credits: 3.0,
-        type: 'THEORY',
-        syllabus: 'DC/AC circuit laws, Ohm’s law, Kirchhoff’s voltage and current laws, Thevenin’s & Norton’s theorems, AC sinusoidal waveforms, RLC resonance, diodes, rectification, BJT transistors, and amplifier configurations.'
-      },
-      {
-        id: 'c-math1105',
-        semId: 'sem-y1s1',
-        code: 'MATH-1105',
-        title: 'Differential and Integral Calculus',
-        credits: 3.0,
-        type: 'THEORY',
-        syllabus: 'Differential calculus: limits, continuity, differentiability, Rolle’s theorem, Taylor’s expansion, curvature, partial differentiation. Integral calculus: definite integrals, integration techniques, arc length, and surface area computation.'
-      },
-
-      // 1st Year 2nd Semester
-      {
-        id: 'c-cse1201',
-        semId: 'sem-y1s2',
-        code: 'CSE-1201',
-        title: 'Discrete Mathematics',
-        credits: 3.0,
-        type: 'THEORY',
-        syllabus: 'Propositional and predicate logic, set theory, functions, mathematical induction, pigeonhole principle, relations, recurrence relations, generating functions, graph theory fundamentals, trees, and Boolean algebra.'
-      },
-      {
-        id: 'c-cse1203',
-        semId: 'sem-y1s2',
-        code: 'CSE-1203',
-        title: 'Object Oriented Programming',
-        credits: 3.0,
-        type: 'THEORY',
-        syllabus: 'Principles of OOP: Encapsulation, abstraction, inheritance, polymorphism, Java/C++ syntax, classes and objects, method overloading and overriding, exception handling, interfaces, packages, multithreading, and GUI basics.'
-      },
-      {
-        id: 'c-cse1204',
-        semId: 'sem-y1s2',
-        code: 'CSE-1204',
-        title: 'Object Oriented Programming Sessional (Lab)',
-        credits: 1.5,
-        type: 'LAB',
-        syllabus: 'Hands-on programming in Java/C++: class design, dynamic memory allocation, design patterns, file serialization, event-driven desktop GUI systems, and comprehensive term software project.'
-      },
-      {
-        id: 'c-math1205',
-        semId: 'sem-y1s2',
-        code: 'MATH-1205',
-        title: 'Linear Algebra and Coordinate Geometry',
-        credits: 3.0,
-        type: 'THEORY',
-        syllabus: 'Vector spaces, matrices, Gaussian elimination, determinants, rank, linear transformations, eigenvalues and eigenvectors. 2D/3D coordinate geometry: transformation of coordinates, planes, straight lines, and sphere equations.'
-      },
-
-      // 2nd Year 1st Semester
-      {
-        id: 'c-cse2101',
-        semId: 'sem-y2s1',
-        code: 'CSE-2101',
-        title: 'Data Structures',
-        credits: 3.0,
-        type: 'THEORY',
-        syllabus: 'Linear and non-linear data structures: arrays, stacks, queues, linked lists, binary trees, binary search trees, AVL trees, B-trees, heaps, hash tables, and priority queues with asymptotic performance analysis.'
-      },
-      {
-        id: 'c-cse2102',
-        semId: 'sem-y2s1',
-        code: 'CSE-2102',
-        title: 'Data Structures Sessional (Lab)',
-        credits: 1.5,
-        type: 'LAB',
-        syllabus: 'Implementation of abstract data types in C++/Java: balanced search trees, hashing collision resolution strategies, graph traversals (BFS/DFS), and memory management optimization.'
-      },
-      {
-        id: 'c-cse2103',
-        semId: 'sem-y2s1',
-        code: 'CSE-2103',
-        title: 'Digital Logic Design',
-        credits: 3.0,
-        type: 'THEORY',
-        syllabus: 'Number systems and codes, Boolean minimization, Karnaugh maps, Quine-McCluskey method, combinational circuits: multiplexers, decoders, adders; sequential circuits: flip-flops, registers, counters, finite state machines (FSM).'
-      },
-      {
-        id: 'c-cse2104',
-        semId: 'sem-y2s1',
-        code: 'CSE-2104',
-        title: 'Digital Logic Design Sessional (Lab)',
-        credits: 1.5,
-        type: 'LAB',
-        syllabus: 'Hardware lab experiments with TTL logic gates, IC chips, combinational logic validation on breadboards, counter verification, and Verilog/VHDL simulation.'
-      },
-
-      // 2nd Year 2nd Semester
-      {
-        id: 'c-cse2201',
-        semId: 'sem-y2s2',
-        code: 'CSE-2201',
-        title: 'Algorithms & Complexity Analysis',
-        credits: 3.0,
-        type: 'THEORY',
-        syllabus: 'Algorithm design paradigms: divide-and-conquer, greedy algorithms, dynamic programming, graph algorithms (Dijkstra, Bellman-Ford, Kruskal, Prim), network flow, string matching, NP-completeness, and approximation algorithms.'
-      },
-      {
-        id: 'c-cse2202',
-        semId: 'sem-y2s2',
-        code: 'CSE-2202',
-        title: 'Algorithms Sessional (Lab)',
-        credits: 1.5,
-        type: 'LAB',
-        syllabus: 'Practical algorithmic programming competitions, competitive programming benchmarks, graph traversal solutions, dynamic programming optimization, and computational geometry applications.'
-      },
-      {
-        id: 'c-cse2203',
-        semId: 'sem-y2s2',
-        code: 'CSE-2203',
-        title: 'Computer Architecture & Organization',
-        credits: 3.0,
-        type: 'THEORY',
-        syllabus: 'Instruction set architecture (MIPS/RISC-V), datapath and control unit design, pipelining hazards, cache memory hierarchies (L1/L2/L3), virtual memory translation, I/O organization, and multiprocessor systems.'
-      },
-      {
-        id: 'c-stat2205',
-        semId: 'sem-y2s2',
-        code: 'STAT-2205',
-        title: 'Probability and Statistics for Engineers',
-        credits: 3.0,
-        type: 'THEORY',
-        syllabus: 'Probability axioms, random variables, probability density functions, expectation, variance, binomial, Poisson, normal distributions, sampling distributions, hypothesis testing, ANOVA, and regression models.'
-      },
-
-      // 3rd Year 1st Semester
-      {
-        id: 'c-cse3101',
-        semId: 'sem-y3s1',
-        code: 'CSE-3101',
-        title: 'Database Management Systems',
-        credits: 3.0,
-        type: 'THEORY',
-        syllabus: 'Relational algebra, SQL, E-R modeling, Normalization (1NF to BCNF), Query Processing and Optimization, Transactions (ACID), Concurrency Control (2PL, Timestamping), and Database Recovery protocols.'
-      },
-      {
-        id: 'c-cse3102',
-        semId: 'sem-y3s1',
-        code: 'CSE-3102',
-        title: 'Database Management Systems Sessional (Lab)',
-        credits: 1.5,
-        type: 'LAB',
-        syllabus: 'Practical database design with PostgreSQL/MySQL, schema migrations, B-tree index benchmarking, stored procedures, triggers, view definitions, and full-stack web application integration.'
-      },
-      {
-        id: 'c-cse3103',
-        semId: 'sem-y3s1',
-        code: 'CSE-3103',
-        title: 'Operating Systems & System Architecture',
-        credits: 3.0,
-        type: 'THEORY',
-        syllabus: 'Process scheduling, IPC, semaphores, monitors, deadlock prevention and avoidance, memory paging, segmentation, virtual memory, page replacement algorithms, and journaling file systems.'
-      },
-      {
-        id: 'c-cse3104',
-        semId: 'sem-y3s1',
-        code: 'CSE-3104',
-        title: 'Operating Systems Sessional (Lab)',
-        credits: 1.5,
-        type: 'LAB',
-        syllabus: 'POSIX system calls in Linux/Unix, multi-threaded C programming with pthread, process synchronization, custom shell implementation, and kernel module compilation.'
-      },
-
-      // 3rd Year 2nd Semester
-      {
-        id: 'c-cse3201',
-        semId: 'sem-y3s2',
-        code: 'CSE-3201',
-        title: 'Software Engineering & Information Systems',
-        credits: 3.0,
-        type: 'THEORY',
-        syllabus: 'Software life cycles (Agile, Scrum, Waterfall), requirements engineering, UML modeling, software architecture patterns, test-driven development (TDD), CI/CD pipelines, and software quality assurance.'
-      },
-      {
-        id: 'c-cse3202',
-        semId: 'sem-y3s2',
-        code: 'CSE-3202',
-        title: 'Software Development Project Sessional (Lab)',
-        credits: 1.5,
-        type: 'LAB',
-        syllabus: 'Team-based end-to-end full stack software product engineering: sprint retrospectives, automated testing, containerized Docker deployment, and client stakeholder presentations.'
-      },
-      {
-        id: 'c-cse3203',
-        semId: 'sem-y3s2',
-        code: 'CSE-3203',
-        title: 'Computer Networks & Internet Protocols',
-        credits: 3.0,
-        type: 'THEORY',
-        syllabus: 'OSI and TCP/IP layered architectures, IP addressing, CIDR, sub-netting, routing algorithms (OSPF, BGP), transport protocols (TCP flow/congestion control, UDP), application protocols (DNS, HTTP/3, TLS), and SDN.'
-      },
-      {
-        id: 'c-cse3204',
-        semId: 'sem-y3s2',
-        code: 'CSE-3204',
-        title: 'Computer Networks Sessional (Lab)',
-        credits: 1.5,
-        type: 'LAB',
-        syllabus: 'Packet sniffing with Wireshark, socket programming in Python/C, Cisco Packet Tracer router/switch topology configuration, VLANs, and firewall rule configurations.'
-      },
-
-      // 4th Year 1st Semester
-      {
-        id: 'c-cse4101',
-        semId: 'sem-y4s1',
-        code: 'CSE-4101',
-        title: 'Artificial Intelligence & Neural Networks',
-        credits: 3.0,
-        type: 'THEORY',
-        syllabus: 'Intelligent agents, uninformed and heuristic search (A*, Minimax, Alpha-Beta pruning), constraint satisfaction problems, knowledge representation, Bayesian reasoning, and foundational neural networks.'
-      },
-      {
-        id: 'c-cse4102',
-        semId: 'sem-y4s1',
-        code: 'CSE-4102',
-        title: 'Artificial Intelligence Sessional (Lab)',
-        credits: 1.5,
-        type: 'LAB',
-        syllabus: 'Implementation of heuristic algorithms in Python, game playing engines, automated theorem proving, Prolog/Python expert systems, and PyTorch perceptron training.'
-      },
-      {
-        id: 'c-cse4103',
-        semId: 'sem-y4s1',
-        code: 'CSE-4103',
-        title: 'Compiler Design & Automata Theory',
-        credits: 3.0,
-        type: 'THEORY',
-        syllabus: 'Lexical analysis (lex/flex), context-free grammars, top-down and bottom-up parsing (LL, LR, LALR, yacc/bison), syntax-directed translation, intermediate code generation, and optimization.'
-      },
-      {
-        id: 'c-cse4100',
-        semId: 'sem-y4s1',
-        code: 'CSE-4100',
-        title: 'Undergraduate Project & Research Thesis Part I',
-        credits: 2.0,
-        type: 'THEORY',
-        syllabus: 'Literature review, problem formulation, methodology design, dataset gathering, ethical review, and faculty supervisory progress defense.'
-      },
-
-      // 4th Year 2nd Semester
-      {
-        id: 'c-cse4201',
-        semId: 'sem-y4s2',
-        code: 'CSE-4201',
-        title: 'Cryptography & Cyber Security',
-        credits: 3.0,
-        type: 'THEORY',
-        syllabus: 'Classical ciphers, symmetric cryptography (AES), asymmetric cryptography (RSA, ECC), cryptographic hash functions (SHA-256), digital signatures, PKI, authentication protocols, zero-knowledge proofs, and web security.'
-      },
-      {
-        id: 'c-cse4203',
-        semId: 'sem-y4s2',
-        code: 'CSE-4203',
-        title: 'Machine Learning & Big Data Analytics',
-        credits: 3.0,
-        type: 'THEORY',
-        syllabus: 'Supervised learning (Linear/Logistic regression, SVM, Random Forests), unsupervised learning (K-Means, PCA), deep learning architectures (CNNs, Transformers), gradient descent, and Hadoop/Spark big data ecosystems.'
-      },
-      {
-        id: 'c-cse4204',
-        semId: 'sem-y4s2',
-        code: 'CSE-4204',
-        title: 'Machine Learning Sessional (Lab)',
-        credits: 1.5,
-        type: 'LAB',
-        syllabus: 'Model training and evaluation using Scikit-Learn and TensorFlow/PyTorch, cross-validation, hyperparameter tuning, NLP embeddings, and model serving via FastAPI.'
-      },
-      {
-        id: 'c-cse4200',
-        semId: 'sem-y4s2',
-        code: 'CSE-4200',
-        title: 'Undergraduate Project & Research Thesis Part II',
-        credits: 4.0,
-        type: 'THEORY',
-        syllabus: 'Final thesis development, experimental validation, peer-review conference paper drafting, and formal defense before the Department Examination Committee.'
-      },
-    ];
+    const insertSem = db.prepare(`
+      INSERT INTO semesters (id, session_id, semester_name, term_code, year, semester, is_active)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(session_id, term_code) DO UPDATE SET
+        semester_name = excluded.semester_name,
+        year = excluded.year,
+        semester = excluded.semester
+    `);
 
     const insertCourse = db.prepare(`
-      INSERT INTO courses (id, semester_id, course_code, course_title, credit_hours, course_type, syllabus_outline)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO courses (
+        id, semester_id, course_code, course_title, credit_hours, course_type,
+        year, semester, term_code, is_optional, elective_group, syllabus_outline
+      )
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(semester_id, course_code) DO UPDATE SET
         course_title = excluded.course_title,
         credit_hours = excluded.credit_hours,
         course_type = excluded.course_type,
+        year = excluded.year,
+        semester = excluded.semester,
+        term_code = excluded.term_code,
+        is_optional = excluded.is_optional,
+        elective_group = excluded.elective_group,
         syllabus_outline = excluded.syllabus_outline
     `);
 
-    for (const c of standardCourses) {
-      insertCourse.run(c.id, c.semId, c.code, c.title, c.credits, c.type, c.syllabus);
+    for (const sess of sessions) {
+      // 1. Ensure 8 standard semesters exist for this session
+      const semesterMap = {};
+      for (const semDef of SEMESTERS_METADATA) {
+        const candidateSemId = `sem-${sess.id}-${semDef.termCode.toLowerCase()}`;
+        insertSem.run(
+          candidateSemId,
+          sess.id,
+          semDef.name,
+          semDef.termCode,
+          semDef.year,
+          semDef.semester,
+          semDef.termCode === 'Y3S1' ? 1 : 0
+        );
+        const actualSem = db.prepare('SELECT id FROM semesters WHERE session_id = ? AND term_code = ?').get(sess.id, semDef.termCode);
+        semesterMap[semDef.termCode] = actualSem ? actualSem.id : candidateSemId;
+      }
+
+      // Also support legacy semester IDs like sem-y3s1 for sess-2023-24
+      if (sess.id === 'sess-2023-24') {
+        for (const semDef of SEMESTERS_METADATA) {
+          const legacySemId = `sem-${semDef.termCode.toLowerCase()}`;
+          const existing = db.prepare('SELECT id FROM semesters WHERE id = ?').get(legacySemId);
+          if (existing) {
+            semesterMap[semDef.termCode] = legacySemId;
+            db.prepare('UPDATE semesters SET year = ?, semester = ? WHERE id = ?').run(semDef.year, semDef.semester, legacySemId);
+          }
+        }
+      }
+
+      // 2. Synchronize all 92 curriculum courses
+      const updateCourse = db.prepare(`
+        UPDATE courses
+        SET course_code = ?,
+            course_title = ?,
+            credit_hours = ?,
+            course_type = ?,
+            year = ?,
+            semester = ?,
+            term_code = ?,
+            is_optional = ?,
+            elective_group = ?,
+            syllabus_outline = ?
+        WHERE id = ?
+      `);
+
+      for (const c of CURRICULUM_COURSES) {
+        const semId = semesterMap[c.termCode];
+        if (!semId) continue;
+
+        // Check if course already exists by standard code or legacy hyphenated code
+        const hyphenCode = c.courseCode.replace(' ', '-');
+        const existing = db.prepare(`
+          SELECT id FROM courses 
+          WHERE semester_id = ? AND (course_code = ? OR course_code = ?)
+        `).get(semId, c.courseCode, hyphenCode);
+
+        if (existing) {
+          updateCourse.run(
+            c.courseCode,
+            c.courseTitle,
+            c.creditHours,
+            c.courseType,
+            c.year,
+            c.semester,
+            c.termCode,
+            c.isOptional ? 1 : 0,
+            c.electiveGroup || null,
+            c.syllabusOutline || null,
+            existing.id
+          );
+        } else {
+          const candidateId = `c-${semId}-${c.courseCode.toLowerCase().replace(/[^a-z0-9]/g, '')}`;
+          const idTaken = db.prepare('SELECT id FROM courses WHERE id = ?').get(candidateId);
+          const courseId = idTaken ? 'c-' + crypto.randomUUID() : candidateId;
+
+          insertCourse.run(
+            courseId,
+            semId,
+            c.courseCode,
+            c.courseTitle,
+            c.creditHours,
+            c.courseType,
+            c.year,
+            c.semester,
+            c.termCode,
+            c.isOptional ? 1 : 0,
+            c.electiveGroup || null,
+            c.syllabusOutline || null
+          );
+        }
+      }
+
+      // 2b. Clean up any obsolete non-curriculum courses in this session's semesters
+      const officialMap = new Map();
+      for (const c of CURRICULUM_COURSES) {
+        officialMap.set(`${c.termCode}_${c.courseCode.replace(/[^A-Za-z0-9]/g, '').toUpperCase()}`, c);
+      }
+
+      for (const semDef of SEMESTERS_METADATA) {
+        const semId = semesterMap[semDef.termCode];
+        if (!semId) continue;
+
+        const coursesInSem = db.prepare('SELECT id, course_code FROM courses WHERE semester_id = ?').all(semId);
+        for (const cur of coursesInSem) {
+          const normKey = `${semDef.termCode}_${cur.course_code.replace(/[^A-Za-z0-9]/g, '').toUpperCase()}`;
+          if (!officialMap.has(normKey)) {
+            db.prepare('DELETE FROM course_assignments WHERE course_id = ?').run(cur.id);
+            db.prepare('DELETE FROM course_materials WHERE course_id = ?').run(cur.id);
+            db.prepare('DELETE FROM ct_marks WHERE course_id = ?').run(cur.id);
+            db.prepare('DELETE FROM course_enrollments WHERE course_id = ?').run(cur.id);
+            db.prepare('DELETE FROM student_results WHERE course_id = ?').run(cur.id);
+            db.prepare('DELETE FROM courses WHERE id = ?').run(cur.id);
+          }
+        }
+      }
     }
 
     // 3. Ensure student cohort with 40-seat allocation context
-    const studentCount = db.prepare('SELECT COUNT(*) as count FROM students WHERE current_session_id = ?').get(sessionId).count;
+    const sessionId = 'sess-2023-24';
+    const studentCount = db.prepare('SELECT COUNT(*) as count FROM students WHERE current_session_id = ?').get(sessionId)?.count || 0;
     if (studentCount < 10) {
       const passStudent = bcrypt.hashSync('12345678', 10);
       const insertUser = db.prepare(`
@@ -1013,7 +910,119 @@ function ensureFullCurriculum() {
       }
     }
 
-    console.log('[Database] Full 8-semester curriculum, course syllabi, and 40-seat batch capacity synchronized.');
+    // 4. Seed Course Enrollments for Students in active semesters
+    try {
+      const activeSem = db.prepare(`
+        SELECT sem.id, sem.session_id, sem.term_code
+        FROM semesters sem
+        WHERE sem.session_id = ? AND sem.is_active = 1
+        LIMIT 1
+      `).get(sessionId);
+
+      if (activeSem) {
+        const coreCourses = db.prepare(`
+          SELECT id FROM courses
+          WHERE semester_id = ? AND (is_optional = 0 OR is_optional IS NULL)
+        `).all(activeSem.id);
+
+        const students = db.prepare('SELECT id FROM students WHERE current_session_id = ?').all(sessionId);
+
+        const insertEnrollment = db.prepare(`
+          INSERT INTO course_enrollments (id, student_id, course_id, session_id, semester_id, enrollment_status, enrollment_type)
+          VALUES (?, ?, ?, ?, ?, 'ENROLLED', 'REGULAR')
+          ON CONFLICT(student_id, course_id) DO NOTHING
+        `);
+
+        for (const st of students) {
+          for (const c of coreCourses) {
+            insertEnrollment.run('enr-' + crypto.randomUUID(), st.id, c.id, sessionId, activeSem.id);
+          }
+        }
+      }
+    } catch (e) {
+      console.warn('[Database] Auto-enrollment sync note:', e.message);
+    }
+
+    // 5. Seed Demo Academic Results for Student s-1 (Tanvir Ahmed) to showcase result tracking
+    try {
+      const sampleResults = [
+        // Year 1, Semester 1
+        { code: 'CSE 1101', term: 'Y1S1', ca: 27.5, fe: 56.5, tot: 84.0, gp: 4.00, grade: 'A+' },
+        { code: 'CSE 1102', term: 'Y1S1', ca: 28.0, fe: 58.0, tot: 86.0, gp: 4.00, grade: 'A+' },
+        { code: 'CSE 1103', term: 'Y1S1', ca: 26.0, fe: 52.0, tot: 78.0, gp: 3.75, grade: 'A' },
+        { code: 'CSE 1104', term: 'Y1S1', ca: 29.0, fe: 60.0, tot: 89.0, gp: 4.00, grade: 'A+' },
+        { code: 'MATH 1101', term: 'Y1S1', ca: 24.5, fe: 48.5, tot: 73.0, gp: 3.50, grade: 'A-' },
+        { code: 'PHY 1101', term: 'Y1S1', ca: 25.0, fe: 51.0, tot: 76.0, gp: 3.75, grade: 'A' },
+        { code: 'HUM 1101', term: 'Y1S1', ca: 28.0, fe: 54.0, tot: 82.0, gp: 4.00, grade: 'A+' },
+        { code: 'HUM 1102', term: 'Y1S1', ca: 28.5, fe: 57.5, tot: 86.0, gp: 4.00, grade: 'A+' },
+        { code: 'CSE 1150', term: 'Y1S1', ca: 27.0, fe: 55.0, tot: 82.0, gp: 4.00, grade: 'A+' },
+
+        // Year 1, Semester 2
+        { code: 'CSE 1201', term: 'Y1S2', ca: 27.0, fe: 54.0, tot: 81.0, gp: 4.00, grade: 'A+' },
+        { code: 'CSE 1202', term: 'Y1S2', ca: 29.0, fe: 59.0, tot: 88.0, gp: 4.00, grade: 'A+' },
+        { code: 'CSE 1203', term: 'Y1S2', ca: 25.5, fe: 50.5, tot: 76.0, gp: 3.75, grade: 'A' },
+        { code: 'EEE 1201', term: 'Y1S2', ca: 24.0, fe: 48.0, tot: 72.0, gp: 3.50, grade: 'A-' },
+        { code: 'MATH 1201', term: 'Y1S2', ca: 26.0, fe: 52.0, tot: 78.0, gp: 3.75, grade: 'A' },
+
+        // Year 2, Semester 1
+        { code: 'CSE 2101', term: 'Y2S1', ca: 28.0, fe: 57.0, tot: 85.0, gp: 4.00, grade: 'A+' },
+        { code: 'CSE 2102', term: 'Y2S1', ca: 29.0, fe: 61.0, tot: 90.0, gp: 4.00, grade: 'A+' },
+        { code: 'CSE 2103', term: 'Y2S1', ca: 27.0, fe: 53.0, tot: 80.0, gp: 4.00, grade: 'A+' },
+        { code: 'MATH 2101', term: 'Y2S1', ca: 26.5, fe: 51.5, tot: 78.0, gp: 3.75, grade: 'A' },
+
+        // Year 3, Semester 1 (Current Active)
+        { code: 'CSE 3101', term: 'Y3S1', ca: 28.0, fe: 56.0, tot: 84.0, gp: 4.00, grade: 'A+' },
+        { code: 'CSE 3107', term: 'Y3S1', ca: 28.5, fe: 58.5, tot: 87.0, gp: 4.00, grade: 'A+' },
+        { code: 'CSE 3108', term: 'Y3S1', ca: 29.5, fe: 60.5, tot: 90.0, gp: 4.00, grade: 'A+' }
+      ];
+
+      const insertResult = db.prepare(`
+        INSERT INTO student_results (
+          id, student_id, course_id, session_id, semester_id,
+          continuous_assessment_marks, final_exam_marks, total_marks,
+          grade_point, letter_grade, credits_earned, is_passed, status
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'PUBLISHED')
+        ON CONFLICT(student_id, course_id) DO UPDATE SET
+          continuous_assessment_marks = excluded.continuous_assessment_marks,
+          final_exam_marks = excluded.final_exam_marks,
+          total_marks = excluded.total_marks,
+          grade_point = excluded.grade_point,
+          letter_grade = excluded.letter_grade,
+          credits_earned = excluded.credits_earned
+      `);
+
+      for (const sr of sampleResults) {
+        const course = db.prepare(`
+          SELECT c.id, c.credit_hours, sem.id as semester_id
+          FROM courses c
+          JOIN semesters sem ON sem.id = c.semester_id
+          WHERE c.course_code = ? AND sem.session_id = ?
+        `).get(sr.code, sessionId);
+
+        if (course) {
+          const resId = 'res-' + crypto.randomUUID();
+          insertResult.run(
+            resId,
+            's-1',
+            course.id,
+            sessionId,
+            course.semester_id,
+            sr.ca,
+            sr.fe,
+            sr.tot,
+            sr.gp,
+            sr.grade,
+            course.credit_hours,
+            1
+          );
+        }
+      }
+    } catch (e) {
+      console.warn('[Database] Sample results sync note:', e.message);
+    }
+
+    console.log('[Database] Official 4-year B.Sc. Engineering curriculum (92 courses), core enrollments, and result tracking synchronized successfully!');
   } catch (err) {
     console.error('[Database] Failed to ensure full curriculum:', err.message);
   }
@@ -1044,8 +1053,8 @@ function ensurePustFacultyMembers() {
         bio: 'Dr. Md. Abdur Rahim is currently serving as Professor and Chairman of the Department of Computer Science and Engineering at Pabna University of Science and Technology. He has published over 88 peer-reviewed research papers in high-impact international journals and conferences.',
         currentCourses: [
           {
-            courseCode: 'CSE-4101',
-            courseTitle: 'Artificial Intelligence & Neural Networks',
+            courseCode: 'CSE 4103',
+            courseTitle: 'Artificial Intelligence',
             courseType: 'DEPARTMENT',
             targetDept: 'CSE',
             sessionName: 'Session 2023-2024',
@@ -1056,20 +1065,20 @@ function ensurePustFacultyMembers() {
             studentsCount: 40
           },
           {
-            courseCode: 'CSE-4102',
-            courseTitle: 'Artificial Intelligence & Expert Systems Lab',
+            courseCode: 'CSE 4104',
+            courseTitle: 'Artificial Intelligence Sessional',
             courseType: 'DEPARTMENT',
             targetDept: 'CSE',
             sessionName: 'Session 2023-2024',
             semesterName: '4th Year 1st Semester',
-            creditHours: 1.5,
+            creditHours: 0.75,
             weeklySchedule: 'Tuesday 02:00 PM - 05:00 PM',
             classEndDate: '2026-11-25',
             studentsCount: 40
           },
           {
-            courseCode: 'CSE-1151',
-            courseTitle: 'Computer Fundamentals & Programming in C',
+            courseCode: 'CSE 1101',
+            courseTitle: 'Computer Fundamentals',
             courseType: 'NON_DEPARTMENT',
             targetDept: 'EEE Department',
             sessionName: 'Session 2023-2024',
@@ -1620,7 +1629,19 @@ function ensurePustFacultyMembers() {
     const insertCourse = db.prepare(`
       INSERT INTO teacher_courses (id, teacher_id, course_code, course_title, course_type, target_dept, session_name, semester_name, credit_hours, weekly_schedule, class_end_date, is_current, students_count)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      ON CONFLICT(id) DO NOTHING
+      ON CONFLICT(id) DO UPDATE SET
+        teacher_id = excluded.teacher_id,
+        course_code = excluded.course_code,
+        course_title = excluded.course_title,
+        course_type = excluded.course_type,
+        target_dept = excluded.target_dept,
+        session_name = excluded.session_name,
+        semester_name = excluded.semester_name,
+        credit_hours = excluded.credit_hours,
+        weekly_schedule = excluded.weekly_schedule,
+        class_end_date = excluded.class_end_date,
+        is_current = excluded.is_current,
+        students_count = excluded.students_count
     `);
 
     for (const fac of pustFaculty) {

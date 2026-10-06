@@ -2199,7 +2199,7 @@ export const TeacherView = ({ initialTab = 'my-courses' }) => {
                 </button>
                 {(curriculumData.semesters || []).map((sem) => (
                   <button
-                    key={sem.semester_id}
+                    key={sem.semester_id || sem.id}
                     type="button"
                     onClick={() => setActiveSemesterFilter(sem.term_code)}
                     style={{
@@ -2229,7 +2229,7 @@ export const TeacherView = ({ initialTab = 'my-courses' }) => {
               ) : (
                 displayedSemesters.map((sem) => (
                   <div
-                    key={sem.semester_id}
+                    key={sem.semester_id || sem.id}
                     style={{
                       background: '#ffffff',
                       borderRadius: '16px',
@@ -2279,7 +2279,7 @@ export const TeacherView = ({ initialTab = 'my-courses' }) => {
                       <button
                         type="button"
                         onClick={() => {
-                          setCourseForm((prev) => ({ ...prev, semesterId: sem.semester_id }));
+                          setCourseForm((prev) => ({ ...prev, semesterId: sem.semester_id || sem.id }));
                           setIsAddCourseModalOpen(true);
                           setCourseActionFeedback(null);
                         }}
@@ -2337,12 +2337,12 @@ export const TeacherView = ({ initialTab = 'my-courses' }) => {
                                 <span style={{
                                   fontSize: '0.7rem',
                                   fontWeight: 700,
-                                  color: crs.course_type === 'LAB_SESSIONAL' ? '#7c3aed' : '#0369a1',
-                                  background: crs.course_type === 'LAB_SESSIONAL' ? '#f3e8ff' : '#e0f2fe',
+                                  color: (crs.course_type === 'Sessional' || crs.course_type === 'LAB') ? '#6d28d9' : crs.course_type === 'Viva' ? '#b45309' : '#0369a1',
+                                  background: (crs.course_type === 'Sessional' || crs.course_type === 'LAB') ? '#f5f3ff' : crs.course_type === 'Viva' ? '#fef3c7' : '#e0f2fe',
                                   padding: '0.2rem 0.5rem',
                                   borderRadius: '6px'
                                 }}>
-                                  {crs.course_type === 'LAB_SESSIONAL' ? '🔬 Lab / Sessional' : '📖 Theory Course'}
+                                  {(crs.course_type === 'Sessional' || crs.course_type === 'LAB') ? '🔬 Sessional' : crs.course_type === 'Viva' ? '🗣️ Viva Voce' : '📖 Theory Course'}
                                 </span>
                               </div>
                               <h5 style={{ margin: 0, fontSize: '0.95rem', fontWeight: 800, color: '#0f172a' }}>

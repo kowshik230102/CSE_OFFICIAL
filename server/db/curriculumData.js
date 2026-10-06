@@ -1,0 +1,1186 @@
+/**
+ * Official B.Sc. Engineering Curriculum of the Department of Computer Science & Engineering (CSE)
+ * Standard 4-Year (8 Semesters) Undergraduate Degree Curriculum
+ */
+
+const CURRICULUM_METADATA = {
+  degree: 'Bachelor of Science in Computer Science and Engineering [B.Sc. Engg. (CSE)]',
+  department: 'Department of Computer Science & Engineering',
+  totalYears: 4,
+  totalSemesters: 8,
+  minGraduationCredits: 164.5,
+  courseTypes: ['Theory', 'Sessional', 'Viva'],
+  gradingSystem: [
+    { grade: 'A+', gradePoint: 4.00, marksRange: '80% and above' },
+    { grade: 'A',  gradePoint: 3.75, marksRange: '75% to less than 80%' },
+    { grade: 'A-', gradePoint: 3.50, marksRange: '70% to less than 75%' },
+    { grade: 'B+', gradePoint: 3.25, marksRange: '65% to less than 70%' },
+    { grade: 'B',  gradePoint: 3.00, marksRange: '60% to less than 65%' },
+    { grade: 'B-', gradePoint: 2.75, marksRange: '55% to less than 60%' },
+    { grade: 'C+', gradePoint: 2.50, marksRange: '50% to less than 55%' },
+    { grade: 'C',  gradePoint: 2.25, marksRange: '45% to less than 50%' },
+    { grade: 'D',  gradePoint: 2.00, marksRange: '40% to less than 45%' },
+    { grade: 'F',  gradePoint: 0.00, marksRange: 'Less than 40%' }
+  ]
+};
+
+const SEMESTERS_METADATA = [
+  { year: 1, semester: 1, termCode: 'Y1S1', name: '1st Year 1st Semester', requiredCredits: 19.50 },
+  { year: 1, semester: 2, termCode: 'Y1S2', name: '1st Year 2nd Semester', requiredCredits: 19.50 },
+  { year: 2, semester: 1, termCode: 'Y2S1', name: '2nd Year 1st Semester', requiredCredits: 20.25 },
+  { year: 2, semester: 2, termCode: 'Y2S2', name: '2nd Year 2nd Semester', requiredCredits: 19.25 },
+  { year: 3, semester: 1, termCode: 'Y3S1', name: '3rd Year 1st Semester', requiredCredits: 21.00 },
+  { year: 3, semester: 2, termCode: 'Y3S2', name: '3rd Year 2nd Semester', requiredCredits: 22.00 },
+  { year: 4, semester: 1, termCode: 'Y4S1', name: '4th Year 1st Semester', requiredCredits: 21.00 },
+  { year: 4, semester: 2, termCode: 'Y4S2', name: '4th Year 2nd Semester', requiredCredits: 22.50 }
+];
+
+const CURRICULUM_COURSES = [
+  // ==========================================
+  // YEAR-1, SEMESTER-1 (Y1S1) - 19.5 Credits
+  // ==========================================
+  {
+    courseCode: 'CSE 1101',
+    courseTitle: 'Computer Fundamentals',
+    creditHours: 3.0,
+    courseType: 'Theory',
+    year: 1,
+    semester: 1,
+    termCode: 'Y1S1',
+    isOptional: false,
+    electiveGroup: null,
+    syllabusOutline: 'Introduction to computer systems, hardware architectures, CPU organization, memory hierarchy, system software, number systems, computer arithmetic, and network essentials.'
+  },
+  {
+    courseCode: 'CSE 1102',
+    courseTitle: 'Computer Fundamentals Sessional',
+    creditHours: 1.5,
+    courseType: 'Sessional',
+    year: 1,
+    semester: 1,
+    termCode: 'Y1S1',
+    isOptional: false,
+    electiveGroup: null,
+    syllabusOutline: 'Hands-on hardware troubleshooting, PC assembly, operating system installation, terminal operations, shell commands, and office productivity tools.'
+  },
+  {
+    courseCode: 'CSE 1103',
+    courseTitle: 'Structured Programming Language',
+    creditHours: 3.0,
+    courseType: 'Theory',
+    year: 1,
+    semester: 1,
+    termCode: 'Y1S1',
+    isOptional: false,
+    electiveGroup: null,
+    syllabusOutline: 'Algorithm formulation, flowcharts, pseudo-code, C programming fundamentals, control structures, functions, recursion, arrays, pointers, memory allocation, and file I/O.'
+  },
+  {
+    courseCode: 'CSE 1104',
+    courseTitle: 'Structured Programming Language Sessional',
+    creditHours: 1.5,
+    courseType: 'Sessional',
+    year: 1,
+    semester: 1,
+    termCode: 'Y1S1',
+    isOptional: false,
+    electiveGroup: null,
+    syllabusOutline: 'Laboratory problem solving in C: programming logic, algorithmic puzzles, debugging, pointer manipulation, structured project implementation, and competitive programming basics.'
+  },
+  {
+    courseCode: 'MATH 1101',
+    courseTitle: 'Differential Calculus and Co-ordinate Geometry',
+    creditHours: 3.0,
+    courseType: 'Theory',
+    year: 1,
+    semester: 1,
+    termCode: 'Y1S1',
+    isOptional: false,
+    electiveGroup: null,
+    syllabusOutline: 'Functions, limits, continuity, differentiation, successive differentiation, Leibniz theorem, Taylor series, maxima/minima, 2D/3D coordinate transformations, straight lines, and conic sections.'
+  },
+  {
+    courseCode: 'PHY 1101',
+    courseTitle: 'Physics',
+    creditHours: 3.0,
+    courseType: 'Theory',
+    year: 1,
+    semester: 1,
+    termCode: 'Y1S1',
+    isOptional: false,
+    electiveGroup: null,
+    syllabusOutline: 'Waves and oscillations, physical optics, interference, diffraction, polarization, quantum physics, relativity, atomic models, and semiconductor physics principles.'
+  },
+  {
+    courseCode: 'HUM 1101',
+    courseTitle: 'Communicative English',
+    creditHours: 3.0,
+    courseType: 'Theory',
+    year: 1,
+    semester: 1,
+    termCode: 'Y1S1',
+    isOptional: false,
+    electiveGroup: null,
+    syllabusOutline: 'Grammar in context, reading comprehension, vocabulary expansion, professional writing, technical reports, presentation skills, and academic discourse.'
+  },
+  {
+    courseCode: 'HUM 1102',
+    courseTitle: 'Communicative English Sessional',
+    creditHours: 0.75,
+    courseType: 'Sessional',
+    year: 1,
+    semester: 1,
+    termCode: 'Y1S1',
+    isOptional: false,
+    electiveGroup: null,
+    syllabusOutline: 'Listening comprehension drills, phonetics, oral presentation sessions, group discussions, debate exercises, and interview preparedness.'
+  },
+  {
+    courseCode: 'CSE 1150',
+    courseTitle: 'Viva Voce',
+    creditHours: 0.75,
+    courseType: 'Viva',
+    year: 1,
+    semester: 1,
+    termCode: 'Y1S1',
+    isOptional: false,
+    electiveGroup: null,
+    syllabusOutline: 'Comprehensive oral examination assessing theoretical knowledge, sessional competence, and conceptual grasp across all courses of Year 1 Semester 1.'
+  },
+
+  // ==========================================
+  // YEAR-1, SEMESTER-2 (Y1S2) - 19.5 Credits
+  // ==========================================
+  {
+    courseCode: 'ME 1200',
+    courseTitle: 'Engineering Drawing',
+    creditHours: 1.0,
+    courseType: 'Sessional',
+    year: 1,
+    semester: 2,
+    termCode: 'Y1S2',
+    isOptional: false,
+    electiveGroup: null,
+    syllabusOutline: 'Orthographic projections, isometric views, drafting instruments, CAD fundamentals, engineering scales, sectional views, and dimensioning standards.'
+  },
+  {
+    courseCode: 'CSE 1200',
+    courseTitle: 'Analytical Programming Sessional',
+    creditHours: 0.75,
+    courseType: 'Sessional',
+    year: 1,
+    semester: 2,
+    termCode: 'Y1S2',
+    isOptional: false,
+    electiveGroup: null,
+    syllabusOutline: 'Analytical thinking, mathematical programming, problem solving on online judge platforms, algorithmic efficiency, time and space complexity evaluation.'
+  },
+  {
+    courseCode: 'CSE 1201',
+    courseTitle: 'Object Oriented Programming',
+    creditHours: 3.0,
+    courseType: 'Theory',
+    year: 1,
+    semester: 2,
+    termCode: 'Y1S2',
+    isOptional: false,
+    electiveGroup: null,
+    syllabusOutline: 'Object-oriented programming paradigm, encapsulation, inheritance, polymorphism, abstraction, classes and objects, exception handling, templates/generics, and I/O streams.'
+  },
+  {
+    courseCode: 'CSE 1202',
+    courseTitle: 'Object Oriented Programming Sessional',
+    creditHours: 1.5,
+    courseType: 'Sessional',
+    year: 1,
+    semester: 2,
+    termCode: 'Y1S2',
+    isOptional: false,
+    electiveGroup: null,
+    syllabusOutline: 'Practical implementation of OOP concepts in C++/Java: class design, dynamic memory management, design patterns, event-driven programming, and term mini-project.'
+  },
+  {
+    courseCode: 'CSE 1203',
+    courseTitle: 'Discrete Mathematics',
+    creditHours: 3.0,
+    courseType: 'Theory',
+    year: 1,
+    semester: 2,
+    termCode: 'Y1S2',
+    isOptional: false,
+    electiveGroup: null,
+    syllabusOutline: 'Set theory, propositional and predicate logic, proof techniques, mathematical induction, relations and functions, combinatorics, recurrence relations, and graph fundamentals.'
+  },
+  {
+    courseCode: 'EEE 1201',
+    courseTitle: 'Basic Electrical Engineering',
+    creditHours: 3.0,
+    courseType: 'Theory',
+    year: 1,
+    semester: 2,
+    termCode: 'Y1S2',
+    isOptional: false,
+    electiveGroup: null,
+    syllabusOutline: 'DC circuit analysis, Kirchhoff\'s laws, mesh and nodal analysis, Thevenin\'s & Norton\'s theorems, sinusoidal AC circuits, phasors, RLC circuits, resonance, and magnetic circuits.'
+  },
+  {
+    courseCode: 'EEE 1202',
+    courseTitle: 'Basic Electrical Engineering Sessional',
+    creditHours: 1.5,
+    courseType: 'Sessional',
+    year: 1,
+    semester: 2,
+    termCode: 'Y1S2',
+    isOptional: false,
+    electiveGroup: null,
+    syllabusOutline: 'Laboratory experiments verifying electrical circuit laws, oscilloscope measurements, RLC impedance characteristics, power factor correction, and transformer tests.'
+  },
+  {
+    courseCode: 'MATH 1201',
+    courseTitle: 'Integral Calculus, Differential Equation and Series Solutions',
+    creditHours: 3.0,
+    courseType: 'Theory',
+    year: 1,
+    semester: 2,
+    termCode: 'Y1S2',
+    isOptional: false,
+    electiveGroup: null,
+    syllabusOutline: 'Definite and indefinite integrals, integration techniques, improper integrals, ordinary differential equations of first and higher orders, power series solutions, and Bessel functions.'
+  },
+  {
+    courseCode: 'HUM 1201',
+    courseTitle: 'Economics',
+    creditHours: 2.0,
+    courseType: 'Theory',
+    year: 1,
+    semester: 2,
+    termCode: 'Y1S2',
+    isOptional: false,
+    electiveGroup: null,
+    syllabusOutline: 'Microeconomics, demand and supply theory, elasticity, consumer behavior, market structures, macroeconomics principles, national income, inflation, and development economics.'
+  },
+  {
+    courseCode: 'CSE 1250',
+    courseTitle: 'Viva Voce',
+    creditHours: 0.75,
+    courseType: 'Viva',
+    year: 1,
+    semester: 2,
+    termCode: 'Y1S2',
+    isOptional: false,
+    electiveGroup: null,
+    syllabusOutline: 'Comprehensive oral board examination covering all subjects, labs, and foundational engineering concepts studied in Year 1 Semester 2.'
+  },
+
+  // ==========================================
+  // YEAR-2, SEMESTER-1 (Y2S1) - 20.25 Credits
+  // ==========================================
+  {
+    courseCode: 'CSE 2100',
+    courseTitle: 'Mobile Application Development Project',
+    creditHours: 1.5,
+    courseType: 'Sessional',
+    year: 2,
+    semester: 1,
+    termCode: 'Y2S1',
+    isOptional: false,
+    electiveGroup: null,
+    syllabusOutline: 'Mobile application architecture, Android/Flutter development, UI components, state management, REST API integration, local SQLite storage, and mobile application release.'
+  },
+  {
+    courseCode: 'CSE 2101',
+    courseTitle: 'Data Structures',
+    creditHours: 3.0,
+    courseType: 'Theory',
+    year: 2,
+    semester: 1,
+    termCode: 'Y2S1',
+    isOptional: false,
+    electiveGroup: null,
+    syllabusOutline: 'Linear and non-linear data structures: arrays, stacks, queues, linked lists, binary trees, binary search trees, AVL trees, B-trees, heaps, hashing, and priority queues.'
+  },
+  {
+    courseCode: 'CSE 2102',
+    courseTitle: 'Data Structures Sessional',
+    creditHours: 1.5,
+    courseType: 'Sessional',
+    year: 2,
+    semester: 1,
+    termCode: 'Y2S1',
+    isOptional: false,
+    electiveGroup: null,
+    syllabusOutline: 'Implementation and complexity analysis of data structures in C++/Java: balanced search trees, collision resolution hashing, graph models, and memory optimization.'
+  },
+  {
+    courseCode: 'CSE 2103',
+    courseTitle: 'Design Pattern and Java Programming',
+    creditHours: 3.0,
+    courseType: 'Theory',
+    year: 2,
+    semester: 1,
+    termCode: 'Y2S1',
+    isOptional: false,
+    electiveGroup: null,
+    syllabusOutline: 'Creational, structural, and behavioral design patterns (Singleton, Factory, Observer, MVC), Java advanced features, multi-threading, reflection, streams, and enterprise architectures.'
+  },
+  {
+    courseCode: 'CSE 2104',
+    courseTitle: 'Design Pattern and Java Programming Sessional',
+    creditHours: 0.75,
+    courseType: 'Sessional',
+    year: 2,
+    semester: 1,
+    termCode: 'Y2S1',
+    isOptional: false,
+    electiveGroup: null,
+    syllabusOutline: 'Practical implementation of Gang of Four (GoF) design patterns, robust software refactoring, modular Java applications, and desktop/web GUI development.'
+  },
+  {
+    courseCode: 'EEE 2101',
+    courseTitle: 'Electronic Devices and Circuits',
+    creditHours: 3.0,
+    courseType: 'Theory',
+    year: 2,
+    semester: 1,
+    termCode: 'Y2S1',
+    isOptional: false,
+    electiveGroup: null,
+    syllabusOutline: 'Semiconductor physics, PN junction diodes, BJT characteristics, biasing, small-signal models, FETs/MOSFETs, operational amplifiers (op-amps), feedback amplifiers, and oscillators.'
+  },
+  {
+    courseCode: 'EEE 2102',
+    courseTitle: 'Electronic Devices and Circuits Sessional',
+    creditHours: 0.75,
+    courseType: 'Sessional',
+    year: 2,
+    semester: 1,
+    termCode: 'Y2S1',
+    isOptional: false,
+    electiveGroup: null,
+    syllabusOutline: 'Hardware laboratory testing of diode clippers/clampers, transistor amplification characteristics, op-amp configurations, active filters, and circuit simulations.'
+  },
+  {
+    courseCode: 'MATH 2101',
+    courseTitle: 'Vector, Matrices and Linear Algebra',
+    creditHours: 3.0,
+    courseType: 'Theory',
+    year: 2,
+    semester: 1,
+    termCode: 'Y2S1',
+    isOptional: false,
+    electiveGroup: null,
+    syllabusOutline: 'Vector algebra and calculus, gradient, divergence, curl, line and surface integrals, matrices, Gaussian elimination, determinants, vector spaces, linear transformations, eigenvalues, and eigenvectors.'
+  },
+  {
+    courseCode: 'STAT 2101',
+    courseTitle: 'Elementary Statistics and Probability',
+    creditHours: 3.0,
+    courseType: 'Theory',
+    year: 2,
+    semester: 1,
+    termCode: 'Y2S1',
+    isOptional: false,
+    electiveGroup: null,
+    syllabusOutline: 'Descriptive statistics, probability theory, random variables, probability distributions (Binomial, Poisson, Normal), sampling theory, estimation, and hypothesis testing.'
+  },
+  {
+    courseCode: 'CSE 2150',
+    courseTitle: 'Viva Voce',
+    creditHours: 0.75,
+    courseType: 'Viva',
+    year: 2,
+    semester: 1,
+    termCode: 'Y2S1',
+    isOptional: false,
+    electiveGroup: null,
+    syllabusOutline: 'Oral board examination evaluating comprehensive conceptual understanding of all courses studied in Year 2 Semester 1.'
+  },
+
+  // ==========================================
+  // YEAR-2, SEMESTER-2 (Y2S2) - 19.25 Credits
+  // ==========================================
+  {
+    courseCode: 'CSE 2200',
+    courseTitle: 'Hardware Project',
+    creditHours: 1.5,
+    courseType: 'Sessional',
+    year: 2,
+    semester: 2,
+    termCode: 'Y2S2',
+    isOptional: false,
+    electiveGroup: null,
+    syllabusOutline: 'Embedded hardware project design using Arduino, ESP32, or Raspberry Pi, sensor integration, actuator interfacing, PCB prototyping, and hardware-software co-design.'
+  },
+  {
+    courseCode: 'CSE 2201',
+    courseTitle: 'Algorithms',
+    creditHours: 3.0,
+    courseType: 'Theory',
+    year: 2,
+    semester: 2,
+    termCode: 'Y2S2',
+    isOptional: false,
+    electiveGroup: null,
+    syllabusOutline: 'Algorithm design strategies: divide-and-conquer, greedy method, dynamic programming, graph algorithms (Dijkstra, Bellman-Ford, Kruskal, Prim), network flow, string algorithms, and NP-completeness.'
+  },
+  {
+    courseCode: 'CSE 2202',
+    courseTitle: 'Algorithms Sessional',
+    creditHours: 1.5,
+    courseType: 'Sessional',
+    year: 2,
+    semester: 2,
+    termCode: 'Y2S2',
+    isOptional: false,
+    electiveGroup: null,
+    syllabusOutline: 'Algorithmic problem-solving implementations, competitive programming, benchmarking time/space complexity, shortest path optimizations, and maximum flow algorithms.'
+  },
+  {
+    courseCode: 'CSE 2203',
+    courseTitle: 'Theory of Computation',
+    creditHours: 2.0,
+    courseType: 'Theory',
+    year: 2,
+    semester: 2,
+    termCode: 'Y2S2',
+    isOptional: false,
+    electiveGroup: null,
+    syllabusOutline: 'Finite automata (DFA, NFA), regular languages, regular expressions, context-free grammars, pushdown automata, Turing machines, decidability, and Church-Turing thesis.'
+  },
+  {
+    courseCode: 'CSE 2205',
+    courseTitle: 'Digital Systems',
+    creditHours: 3.0,
+    courseType: 'Theory',
+    year: 2,
+    semester: 2,
+    termCode: 'Y2S2',
+    isOptional: false,
+    electiveGroup: null,
+    syllabusOutline: 'Number systems, Boolean algebra, logic gate minimization, combinational circuits (adders, multiplexers, decoders), sequential circuits (flip-flops, counters, registers), finite state machines, and programmable logic.'
+  },
+  {
+    courseCode: 'CSE 2206',
+    courseTitle: 'Digital Systems Sessional',
+    creditHours: 1.5,
+    courseType: 'Sessional',
+    year: 2,
+    semester: 2,
+    termCode: 'Y2S2',
+    isOptional: false,
+    electiveGroup: null,
+    syllabusOutline: 'Hardware lab experiments with TTL/CMOS ICs, breadboard circuit implementations, sequential state machine testing, and digital logic simulation tools (Logisim/Verilog).'
+  },
+  {
+    courseCode: 'MATH 2201',
+    courseTitle: 'Complex analysis, Laplace and Fourier Transforms',
+    creditHours: 3.0,
+    courseType: 'Theory',
+    year: 2,
+    semester: 2,
+    termCode: 'Y2S2',
+    isOptional: false,
+    electiveGroup: null,
+    syllabusOutline: 'Complex variables, Cauchy-Riemann equations, contour integration, Cauchy integral formula, Laplace transforms and inverse transforms, Fourier series, and Fourier transforms.'
+  },
+  {
+    courseCode: 'STAT 2201',
+    courseTitle: 'Theory of Statistics',
+    creditHours: 3.0,
+    courseType: 'Theory',
+    year: 2,
+    semester: 2,
+    termCode: 'Y2S2',
+    isOptional: false,
+    electiveGroup: null,
+    syllabusOutline: 'Probability distributions, sampling distributions, Chi-square, t, and F distributions, point and interval estimation, maximum likelihood estimation, regression analysis, and ANOVA.'
+  },
+  {
+    courseCode: 'CSE 2250',
+    courseTitle: 'Viva Voce',
+    creditHours: 0.75,
+    courseType: 'Viva',
+    year: 2,
+    semester: 2,
+    termCode: 'Y2S2',
+    isOptional: false,
+    electiveGroup: null,
+    syllabusOutline: 'Comprehensive oral examination assessing the full spectrum of academic topics and project competencies from Year 2 Semester 2.'
+  },
+
+  // ==========================================
+  // YEAR-3, SEMESTER-1 (Y3S1) - 21.0 Credits
+  // ==========================================
+  {
+    courseCode: 'CSE 3100',
+    courseTitle: 'Software Project I',
+    creditHours: 1.5,
+    courseType: 'Sessional',
+    year: 3,
+    semester: 1,
+    termCode: 'Y3S1',
+    isOptional: false,
+    electiveGroup: null,
+    syllabusOutline: 'End-to-end full-stack software application engineering: requirements gathering, system modeling, database design, REST API implementation, automated testing, and team sprint demos.'
+  },
+  {
+    courseCode: 'CSE 3101',
+    courseTitle: 'Computer Architecture and Organization',
+    creditHours: 3.0,
+    courseType: 'Theory',
+    year: 3,
+    semester: 1,
+    termCode: 'Y3S1',
+    isOptional: false,
+    electiveGroup: null,
+    syllabusOutline: 'Instruction set architecture (MIPS/RISC-V), ALU design, processor datapath and control unit, pipelining hazards, cache memory hierarchy, virtual memory, and multicore processors.'
+  },
+  {
+    courseCode: 'CSE 3103',
+    courseTitle: 'Compiler Design',
+    creditHours: 3.0,
+    courseType: 'Theory',
+    year: 3,
+    semester: 1,
+    termCode: 'Y3S1',
+    isOptional: false,
+    electiveGroup: null,
+    syllabusOutline: 'Compiler architecture: lexical analysis, syntax analysis (top-down and bottom-up parsing), syntax-directed translation, intermediate code generation, code optimization, and target code generation.'
+  },
+  {
+    courseCode: 'CSE 3104',
+    courseTitle: 'Compiler Design Sessional',
+    creditHours: 0.75,
+    courseType: 'Sessional',
+    year: 3,
+    semester: 1,
+    termCode: 'Y3S1',
+    isOptional: false,
+    electiveGroup: null,
+    syllabusOutline: 'Hands-on compiler construction with Flex and Bison (Lex & Yacc), symbol table management, syntax tree generation, semantic checks, and mini-compiler project.'
+  },
+  {
+    courseCode: 'CSE 3105',
+    courseTitle: 'Numerical Methods',
+    creditHours: 3.0,
+    courseType: 'Theory',
+    year: 3,
+    semester: 1,
+    termCode: 'Y3S1',
+    isOptional: false,
+    electiveGroup: null,
+    syllabusOutline: 'Error analysis, roots of non-linear equations (Bisection, Newton-Raphson), systems of linear equations (Gauss-Seidel), interpolation, numerical differentiation, integration (Simpson\'s rule), and ODE solvers (Runge-Kutta).'
+  },
+  {
+    courseCode: 'CSE 3106',
+    courseTitle: 'Numerical Methods Sessional',
+    creditHours: 0.75,
+    courseType: 'Sessional',
+    year: 3,
+    semester: 1,
+    termCode: 'Y3S1',
+    isOptional: false,
+    electiveGroup: null,
+    syllabusOutline: 'Implementation of numerical algorithms in Python/C++: root finding, matrix factorizations, polynomial interpolations, numerical integration, and convergence tests.'
+  },
+  {
+    courseCode: 'CSE 3107',
+    courseTitle: 'Database Management Systems',
+    creditHours: 3.0,
+    courseType: 'Theory',
+    year: 3,
+    semester: 1,
+    termCode: 'Y3S1',
+    isOptional: false,
+    electiveGroup: null,
+    syllabusOutline: 'Relational model, relational algebra, SQL, E-R data modeling, Normalization (1NF to BCNF), transaction processing, ACID properties, concurrency control, and database recovery mechanisms.'
+  },
+  {
+    courseCode: 'CSE 3108',
+    courseTitle: 'Database Management Systems Sessional',
+    creditHours: 1.5,
+    courseType: 'Sessional',
+    year: 3,
+    semester: 1,
+    termCode: 'Y3S1',
+    isOptional: false,
+    electiveGroup: null,
+    syllabusOutline: 'PostgreSQL/MySQL database design, complex SQL queries, index optimization, stored procedures, triggers, view definitions, transaction isolation testing, and full-stack integration.'
+  },
+  {
+    courseCode: 'ECE 3101',
+    courseTitle: 'Data Communication',
+    creditHours: 3.0,
+    courseType: 'Theory',
+    year: 3,
+    semester: 1,
+    termCode: 'Y3S1',
+    isOptional: false,
+    electiveGroup: null,
+    syllabusOutline: 'Data transmission concepts, signal encoding techniques, transmission media, multiplexing (FDM, TDM), modulation (ASK, FSK, PSK, QAM), error detection and correction, and data link control protocols.'
+  },
+  {
+    courseCode: 'ECE 3102',
+    courseTitle: 'Data Communication Sessional',
+    creditHours: 0.75,
+    courseType: 'Sessional',
+    year: 3,
+    semester: 1,
+    termCode: 'Y3S1',
+    isOptional: false,
+    electiveGroup: null,
+    syllabusOutline: 'Signal analysis using MATLAB/Oscilloscopes, analog-to-digital conversions, line coding simulations, Hamming codes, CRC error detection, and communication lab experiments.'
+  },
+  {
+    courseCode: 'CSE 3150',
+    courseTitle: 'Viva Voce',
+    creditHours: 0.75,
+    courseType: 'Viva',
+    year: 3,
+    semester: 1,
+    termCode: 'Y3S1',
+    isOptional: false,
+    electiveGroup: null,
+    syllabusOutline: 'Comprehensive oral examination assessing the curriculum competencies, projects, and theoretical depth of Year 3 Semester 1.'
+  },
+
+  // ==========================================
+  // YEAR-3, SEMESTER-2 (Y3S2) - 22.0 Credits
+  // ==========================================
+  {
+    courseCode: 'CSE 3200',
+    courseTitle: 'Software Project II',
+    creditHours: 1.5,
+    courseType: 'Sessional',
+    year: 3,
+    semester: 2,
+    termCode: 'Y3S2',
+    isOptional: false,
+    electiveGroup: null,
+    syllabusOutline: 'Advanced software development project: cloud-native systems, microservices architecture, Docker containerization, CI/CD pipeline deployment, and comprehensive technical documentation.'
+  },
+  {
+    courseCode: 'CSE 3201',
+    courseTitle: 'System Analysis and Design',
+    creditHours: 3.0,
+    courseType: 'Theory',
+    year: 3,
+    semester: 2,
+    termCode: 'Y3S2',
+    isOptional: false,
+    electiveGroup: null,
+    syllabusOutline: 'System development life cycle, feasibility studies, requirements engineering, object-oriented modeling with UML (Use Case, Activity, Sequence, Class diagrams), system architecture, and UI/UX design principles.'
+  },
+  {
+    courseCode: 'CSE 3203',
+    courseTitle: 'Operating Systems',
+    creditHours: 3.0,
+    courseType: 'Theory',
+    year: 3,
+    semester: 2,
+    termCode: 'Y3S2',
+    isOptional: false,
+    electiveGroup: null,
+    syllabusOutline: 'OS architectures, process management, CPU scheduling algorithms, inter-process communication, semaphores, deadlock detection and prevention, memory management, virtual memory, paging, and file systems.'
+  },
+  {
+    courseCode: 'CSE 3204',
+    courseTitle: 'Operating Systems Sessional',
+    creditHours: 1.5,
+    courseType: 'Sessional',
+    year: 3,
+    semester: 2,
+    termCode: 'Y3S2',
+    isOptional: false,
+    electiveGroup: null,
+    syllabusOutline: 'Linux kernel system calls, multi-threaded C programming with POSIX threads, process synchronization, custom shell implementation, and page replacement algorithm benchmarks.'
+  },
+  {
+    courseCode: 'CSE 3205',
+    courseTitle: 'Web Engineering',
+    creditHours: 3.0,
+    courseType: 'Theory',
+    year: 3,
+    semester: 2,
+    termCode: 'Y3S2',
+    isOptional: false,
+    electiveGroup: null,
+    syllabusOutline: 'Web protocols (HTTP/HTTPS, WebSockets), client-side architectures, server-side frameworks, RESTful APIs, authentication (JWT, OAuth), web performance, security (CORS, CSRF, XSS), and modern web stacks.'
+  },
+  {
+    courseCode: 'CSE 3206',
+    courseTitle: 'Web Engineering Sessional',
+    creditHours: 1.0,
+    courseType: 'Sessional',
+    year: 3,
+    semester: 2,
+    termCode: 'Y3S2',
+    isOptional: false,
+    electiveGroup: null,
+    syllabusOutline: 'Development of responsive web applications: modern JavaScript/TypeScript, React frontend, Node/Express backend, database integration, API authorization, and cloud hosting.'
+  },
+  {
+    courseCode: 'CSE 3207',
+    courseTitle: 'Digital Signal Processing',
+    creditHours: 3.0,
+    courseType: 'Theory',
+    year: 3,
+    semester: 2,
+    termCode: 'Y3S2',
+    isOptional: false,
+    electiveGroup: null,
+    syllabusOutline: 'Discrete-time signals and systems, Z-transform, Discrete Fourier Transform (DFT), Fast Fourier Transform (FFT), FIR and IIR digital filter design, filter realization, and DSP applications.'
+  },
+  {
+    courseCode: 'CSE 3208',
+    courseTitle: 'Digital Signal Processing Sessional',
+    creditHours: 0.75,
+    courseType: 'Sessional',
+    year: 3,
+    semester: 2,
+    termCode: 'Y3S2',
+    isOptional: false,
+    electiveGroup: null,
+    syllabusOutline: 'Signal processing experiments using MATLAB/Python: sampling theorem verification, FFT spectrum analysis, FIR/IIR filter implementation, audio filtering, and noise cancellation.'
+  },
+  {
+    courseCode: 'CSE 3209',
+    courseTitle: 'Microprocessors and Assembly Language',
+    creditHours: 3.0,
+    courseType: 'Theory',
+    year: 3,
+    semester: 2,
+    termCode: 'Y3S2',
+    isOptional: false,
+    electiveGroup: null,
+    syllabusOutline: 'Intel 8086 microprocessor architecture, register organization, memory segmentation, addressing modes, 8086 assembly language programming, interrupts, and hardware bus cycles.'
+  },
+  {
+    courseCode: 'CSE 3210',
+    courseTitle: 'Microprocessors and Assembly Language Sessional',
+    creditHours: 1.5,
+    courseType: 'Sessional',
+    year: 3,
+    semester: 2,
+    termCode: 'Y3S2',
+    isOptional: false,
+    electiveGroup: null,
+    syllabusOutline: 'Assembly language programming with EMU8086/MASM: arithmetic operations, loops, string processing, BIOS/DOS interrupts, macro definitions, and hardware interfacing experiments.'
+  },
+  {
+    courseCode: 'CSE 3250',
+    courseTitle: 'Viva Voce',
+    creditHours: 0.75,
+    courseType: 'Viva',
+    year: 3,
+    semester: 2,
+    termCode: 'Y3S2',
+    isOptional: false,
+    electiveGroup: null,
+    syllabusOutline: 'Comprehensive oral examination assessing the curriculum courses and software/hardware projects of Year 3 Semester 2.'
+  },
+
+  // ==========================================
+  // YEAR-4, SEMESTER-1 (Y4S1) - 21.0 Credits
+  // ==========================================
+  // Core Courses (18.0 Credits)
+  {
+    courseCode: 'CSE 4100',
+    courseTitle: 'Thesis',
+    creditHours: 1.5,
+    courseType: 'Sessional',
+    year: 4,
+    semester: 1,
+    termCode: 'Y4S1',
+    isOptional: false,
+    electiveGroup: null,
+    syllabusOutline: 'Undergraduate research thesis (evaluated combined with CSE 4200): literature review, research methodology, formulation of research problem, preliminary experiments, and progress defense.'
+  },
+  {
+    courseCode: 'CSE 4101',
+    courseTitle: 'Software Engineering',
+    creditHours: 3.0,
+    courseType: 'Theory',
+    year: 4,
+    semester: 1,
+    termCode: 'Y4S1',
+    isOptional: false,
+    electiveGroup: null,
+    syllabusOutline: 'Software processes (Agile, Scrum, Kanban), software requirements specification, architectural patterns, design patterns, testing strategies (unit, integration, regression), code quality metrics, and DevOps.'
+  },
+  {
+    courseCode: 'CSE 4102',
+    courseTitle: 'Software Project III',
+    creditHours: 1.5,
+    courseType: 'Sessional',
+    year: 4,
+    semester: 1,
+    termCode: 'Y4S1',
+    isOptional: false,
+    electiveGroup: null,
+    syllabusOutline: 'Enterprise software capstone project: microservices architecture, automated CI/CD pipelines, container orchestration with Docker/Kubernetes, performance testing, and production deployment.'
+  },
+  {
+    courseCode: 'CSE 4103',
+    courseTitle: 'Artificial Intelligence',
+    creditHours: 3.0,
+    courseType: 'Theory',
+    year: 4,
+    semester: 1,
+    termCode: 'Y4S1',
+    isOptional: false,
+    electiveGroup: null,
+    syllabusOutline: 'Intelligent agents, uninformed and heuristic search (A*, IDA*), adversarial search (Minimax, Alpha-Beta pruning), constraint satisfaction problems, propositional and first-order logic, probabilistic reasoning, and reinforcement learning.'
+  },
+  {
+    courseCode: 'CSE 4104',
+    courseTitle: 'Artificial Intelligence Sessional',
+    creditHours: 0.75,
+    courseType: 'Sessional',
+    year: 4,
+    semester: 1,
+    termCode: 'Y4S1',
+    isOptional: false,
+    electiveGroup: null,
+    syllabusOutline: 'Hands-on AI problem solving in Python: state-space graph search algorithms, game-playing engines, constraint satisfaction solvers, probabilistic inference, and expert systems.'
+  },
+  {
+    courseCode: 'CSE 4105',
+    courseTitle: 'Digital Image Processing',
+    creditHours: 3.0,
+    courseType: 'Theory',
+    year: 4,
+    semester: 1,
+    termCode: 'Y4S1',
+    isOptional: false,
+    electiveGroup: null,
+    syllabusOutline: 'Digital image fundamentals, image enhancement in spatial and frequency domains, image restoration, color image processing, wavelets, image compression, morphological processing, and image segmentation.'
+  },
+  {
+    courseCode: 'CSE 4106',
+    courseTitle: 'Digital Image Processing Sessional',
+    creditHours: 1.5,
+    courseType: 'Sessional',
+    year: 4,
+    semester: 1,
+    termCode: 'Y4S1',
+    isOptional: false,
+    electiveGroup: null,
+    syllabusOutline: 'Implementation of image processing algorithms in Python/OpenCV: histogram equalization, spatial convolution filters, edge detection (Sobel, Canny), morphological operations, and object segmentation.'
+  },
+  {
+    courseCode: 'HUM 4101',
+    courseTitle: 'Sociology and Bangladesh Studies',
+    creditHours: 3.0,
+    courseType: 'Theory',
+    year: 4,
+    semester: 1,
+    termCode: 'Y4S1',
+    isOptional: false,
+    electiveGroup: null,
+    syllabusOutline: 'Sociological theories, social institutions, urbanization, industrial sociology, history of Bangladesh, Liberation War of 1971, constitution, governance, and socioeconomic development.'
+  },
+  {
+    courseCode: 'CSE 4150',
+    courseTitle: 'Viva Voce',
+    creditHours: 0.75,
+    courseType: 'Viva',
+    year: 4,
+    semester: 1,
+    termCode: 'Y4S1',
+    isOptional: false,
+    electiveGroup: null,
+    syllabusOutline: 'Comprehensive oral examination assessing theoretical competence, thesis progress, and coursework knowledge of Year 4 Semester 1.'
+  },
+
+  // Optional-I Elective Courses (Choose Any One - 3.0 Credits)
+  {
+    courseCode: 'CSE 4107',
+    courseTitle: 'Computer Simulation and Modeling',
+    creditHours: 3.0,
+    courseType: 'Theory',
+    year: 4,
+    semester: 1,
+    termCode: 'Y4S1',
+    isOptional: true,
+    electiveGroup: 'Optional-I',
+    syllabusOutline: 'System simulation concepts, continuous and discrete-event simulation, random number generation, input modeling, verification and validation of simulation models, and queuing models.'
+  },
+  {
+    courseCode: 'CSE 4109',
+    courseTitle: 'Multimedia Technology',
+    creditHours: 3.0,
+    courseType: 'Theory',
+    year: 4,
+    semester: 1,
+    termCode: 'Y4S1',
+    isOptional: true,
+    electiveGroup: 'Optional-I',
+    syllabusOutline: 'Multimedia data representations (text, audio, image, video), compression standards (JPEG, MPEG), streaming multimedia protocols, synchronization, and multimedia authoring systems.'
+  },
+  {
+    courseCode: 'CSE 4111',
+    courseTitle: 'Basic Graph Theory',
+    creditHours: 3.0,
+    courseType: 'Theory',
+    year: 4,
+    semester: 1,
+    termCode: 'Y4S1',
+    isOptional: true,
+    electiveGroup: 'Optional-I',
+    syllabusOutline: 'Graphs and subgraphs, trees, connectivity, Euler tours, Hamilton cycles, matchings, vertex and edge colorings, planar graphs, directed graphs, and extremal graph theory.'
+  },
+  {
+    courseCode: 'CSE 4113',
+    courseTitle: 'Parallel and Distributed Processing',
+    creditHours: 3.0,
+    courseType: 'Theory',
+    year: 4,
+    semester: 1,
+    termCode: 'Y4S1',
+    isOptional: true,
+    electiveGroup: 'Optional-I',
+    syllabusOutline: 'Parallel computer architectures, Flynn\'s taxonomy, shared-memory vs distributed-memory programming (OpenMP, MPI), parallel algorithm design, synchronization, and cluster computing.'
+  },
+  {
+    courseCode: 'CSE 4115',
+    courseTitle: 'Data Mining',
+    creditHours: 3.0,
+    courseType: 'Theory',
+    year: 4,
+    semester: 1,
+    termCode: 'Y4S1',
+    isOptional: true,
+    electiveGroup: 'Optional-I',
+    syllabusOutline: 'Data warehousing, OLAP, association rule mining (Apriori, FP-Growth), classification algorithms (Decision Trees, Naive Bayes, SVM), clustering (K-Means, DBSCAN), and outlier detection.'
+  },
+  {
+    courseCode: 'CSE 4117',
+    courseTitle: 'Computer Vision',
+    creditHours: 3.0,
+    courseType: 'Theory',
+    year: 4,
+    semester: 1,
+    termCode: 'Y4S1',
+    isOptional: true,
+    electiveGroup: 'Optional-I',
+    syllabusOutline: 'Camera models, geometry of multiple views, feature extraction (SIFT, SURF, ORB), optical flow, object detection, convolutional neural networks (CNNs) for vision, and image segmentation.'
+  },
+  {
+    courseCode: 'CSE 4119',
+    courseTitle: 'Machine Learning',
+    creditHours: 3.0,
+    courseType: 'Theory',
+    year: 4,
+    semester: 1,
+    termCode: 'Y4S1',
+    isOptional: true,
+    electiveGroup: 'Optional-I',
+    syllabusOutline: 'Supervised learning (Linear/Logistic Regression, SVM, Random Forests), unsupervised learning (PCA, Clustering), deep neural networks, loss optimization (SGD, Adam), regularization, and model evaluation.'
+  },
+
+  // ==========================================
+  // YEAR-4, SEMESTER-2 (Y4S2) - 22.5 Credits
+  // ==========================================
+  // Core Courses (19.5 Credits)
+  {
+    courseCode: 'CSE 4200',
+    courseTitle: 'Thesis',
+    creditHours: 3.0,
+    courseType: 'Sessional',
+    year: 4,
+    semester: 2,
+    termCode: 'Y4S2',
+    isOptional: false,
+    electiveGroup: null,
+    syllabusOutline: 'Undergraduate graduation thesis: experimental design, algorithmic implementations, result evaluation, academic paper drafting, final thesis dissertation book submission, and board defense.'
+  },
+  {
+    courseCode: 'CSE 4201',
+    courseTitle: 'Computer Networks',
+    creditHours: 3.0,
+    courseType: 'Theory',
+    year: 4,
+    semester: 2,
+    termCode: 'Y4S2',
+    isOptional: false,
+    electiveGroup: null,
+    syllabusOutline: 'OSI and TCP/IP protocol stacks, IPv4/IPv6 addressing, subnetting, routing protocols (OSPF, BGP), transport protocols (TCP flow and congestion control, UDP), DNS, HTTP, and SDN architectures.'
+  },
+  {
+    courseCode: 'CSE 4202',
+    courseTitle: 'Computer Networks Sessional',
+    creditHours: 1.5,
+    courseType: 'Sessional',
+    year: 4,
+    semester: 2,
+    termCode: 'Y4S2',
+    isOptional: false,
+    electiveGroup: null,
+    syllabusOutline: 'Network packet analysis using Wireshark, socket programming in Python/C, Cisco Packet Tracer router/switch topology configurations, VLANs, NAT, and network firewall configurations.'
+  },
+  {
+    courseCode: 'CSE 4203',
+    courseTitle: 'Computer Graphics',
+    creditHours: 3.0,
+    courseType: 'Theory',
+    year: 4,
+    semester: 2,
+    termCode: 'Y4S2',
+    isOptional: false,
+    electiveGroup: null,
+    syllabusOutline: 'Graphics hardware, rasterization algorithms (Bresenham, midpoint), 2D and 3D affine transformations, viewing pipelines, clipping, 3D projections, hidden surface removal, shading, and ray tracing.'
+  },
+  {
+    courseCode: 'CSE 4204',
+    courseTitle: 'Computer Graphics Sessional',
+    creditHours: 1.5,
+    courseType: 'Sessional',
+    year: 4,
+    semester: 2,
+    termCode: 'Y4S2',
+    isOptional: false,
+    electiveGroup: null,
+    syllabusOutline: 'Implementation of interactive 2D and 3D graphics in OpenGL/WebGL: shaders, transformation matrices, lighting, texture mapping, camera controls, and 3D simulation projects.'
+  },
+  {
+    courseCode: 'CSE 4205',
+    courseTitle: 'Interfacing and Microcontrollers',
+    creditHours: 3.0,
+    courseType: 'Theory',
+    year: 4,
+    semester: 2,
+    termCode: 'Y4S2',
+    isOptional: false,
+    electiveGroup: null,
+    syllabusOutline: 'Microcontroller architectures (PIC/AVR/ARM), programmable peripheral interfaces (8255 PPI, 8254 Timer, 8259 PIC), serial communication protocols (I2C, SPI, UART), ADC/DAC interfacing, and real-time systems.'
+  },
+  {
+    courseCode: 'CSE 4206',
+    courseTitle: 'Interfacing and Microcontrollers Sessional',
+    creditHours: 0.75,
+    courseType: 'Sessional',
+    year: 4,
+    semester: 2,
+    termCode: 'Y4S2',
+    isOptional: false,
+    electiveGroup: null,
+    syllabusOutline: 'Hardware laboratory interfacing with microcontrollers: sensor reading, LCD/OLED displays, motor drivers, PWM control, interrupt handling, and embedded system project design.'
+  },
+  {
+    courseCode: 'HUM 4201',
+    courseTitle: 'Industrial Management and Accounting',
+    creditHours: 3.0,
+    courseType: 'Theory',
+    year: 4,
+    semester: 2,
+    termCode: 'Y4S2',
+    isOptional: false,
+    electiveGroup: null,
+    syllabusOutline: 'Principles of management, organizational behavior, operations research, total quality management, financial accounting, cost accounting, budgeting, project appraisal, and engineering ethics.'
+  },
+  {
+    courseCode: 'CSE 4250',
+    courseTitle: 'Viva Voce',
+    creditHours: 0.75,
+    courseType: 'Viva',
+    year: 4,
+    semester: 2,
+    termCode: 'Y4S2',
+    isOptional: false,
+    electiveGroup: null,
+    syllabusOutline: 'Comprehensive grand viva voce evaluating all 4 years of undergraduate engineering coursework, thesis research, and technical readiness for industry or higher studies.'
+  },
+
+  // Optional-II Elective Courses (Choose Any One - 3.0 Credits)
+  {
+    courseCode: 'CSE 4207',
+    courseTitle: 'Cryptography and Network Security',
+    creditHours: 3.0,
+    courseType: 'Theory',
+    year: 4,
+    semester: 2,
+    termCode: 'Y4S2',
+    isOptional: true,
+    electiveGroup: 'Optional-II',
+    syllabusOutline: 'Classical ciphers, symmetric cryptography (AES, DES), asymmetric cryptography (RSA, ECC), hash functions (SHA-256), digital signatures, PKI, SSL/TLS, firewalls, and intrusion detection systems.'
+  },
+  {
+    courseCode: 'CSE 4209',
+    courseTitle: 'VLSI Design',
+    creditHours: 3.0,
+    courseType: 'Theory',
+    year: 4,
+    semester: 2,
+    termCode: 'Y4S2',
+    isOptional: true,
+    electiveGroup: 'Optional-II',
+    syllabusOutline: 'MOS transistor theory, CMOS inverter characteristics, combinational and sequential CMOS circuit design, stick diagrams, physical layout design, Verilog HDL synthesis, and FPGA architectures.'
+  },
+  {
+    courseCode: 'CSE 4211',
+    courseTitle: 'Wireless Communication',
+    creditHours: 3.0,
+    courseType: 'Theory',
+    year: 4,
+    semester: 2,
+    termCode: 'Y4S2',
+    isOptional: true,
+    electiveGroup: 'Optional-II',
+    syllabusOutline: 'Cellular wireless concepts, channel fading models, multiple access techniques (CDMA, OFDMA), wireless networks (Wi-Fi, 4G LTE, 5G NR), MIMO systems, and mobile ad-hoc networks (MANET).'
+  },
+  {
+    courseCode: 'CSE 4213',
+    courseTitle: 'Computational Geometry',
+    creditHours: 3.0,
+    courseType: 'Theory',
+    year: 4,
+    semester: 2,
+    termCode: 'Y4S2',
+    isOptional: true,
+    electiveGroup: 'Optional-II',
+    syllabusOutline: 'Geometric primitives, convex hulls (Graham scan, Jarvis march), line segment intersections, polygon triangulations, Voronoi diagrams, Delaunay triangulations, and range searching.'
+  },
+  {
+    courseCode: 'CSE 4215',
+    courseTitle: 'Bioinformatics',
+    creditHours: 3.0,
+    courseType: 'Theory',
+    year: 4,
+    semester: 2,
+    termCode: 'Y4S2',
+    isOptional: true,
+    electiveGroup: 'Optional-II',
+    syllabusOutline: 'Biological sequence analysis (DNA/RNA/Protein), pairwise and multiple sequence alignment (Needleman-Wunsch, Smith-Waterman, BLAST), phylogenetic trees, Hidden Markov Models, and structural genomics.'
+  },
+  {
+    courseCode: 'CSE 4217',
+    courseTitle: 'Human Computer Interaction',
+    creditHours: 3.0,
+    courseType: 'Theory',
+    year: 4,
+    semester: 2,
+    termCode: 'Y4S2',
+    isOptional: true,
+    electiveGroup: 'Optional-II',
+    syllabusOutline: 'User-centered design, usability engineering, psychological foundations of interaction, user research, wireframing, heuristic evaluation, usability testing, and accessibility (a11y) standards.'
+  },
+  {
+    courseCode: 'CSE 4219',
+    courseTitle: 'Knowledge Engineering',
+    creditHours: 3.0,
+    courseType: 'Theory',
+    year: 4,
+    semester: 2,
+    termCode: 'Y4S2',
+    isOptional: true,
+    electiveGroup: 'Optional-II',
+    syllabusOutline: 'Knowledge acquisition, representation using ontologies (OWL, RDF), semantic web technologies, knowledge graph construction, rule-based reasoning engines, and inference mechanisms.'
+  }
+];
+
+module.exports = {
+  CURRICULUM_METADATA,
+  SEMESTERS_METADATA,
+  CURRICULUM_COURSES
+};

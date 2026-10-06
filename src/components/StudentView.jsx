@@ -308,7 +308,7 @@ export const StudentView = ({ initialTab = 'courses' }) => {
                     >
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                         <span style={{ fontWeight: 800, fontSize: '0.85rem', color: '#2563eb', fontFamily: 'var(--font-mono)' }}>{c.course_code}</span>
-                        <span className={`badge ${c.course_type === 'LAB' ? 'badge-lab' : 'badge-theory'}`}>{c.course_type}</span>
+                        <span className={`badge ${c.course_type === 'Sessional' || c.course_type === 'LAB' ? 'badge-lab' : c.course_type === 'Viva' ? 'badge-teacher' : 'badge-theory'}`}>{c.course_type}</span>
                       </div>
                       <div style={{ fontSize: '0.875rem', fontWeight: 700, marginTop: '0.25rem', color: '#0f172a' }}>{c.course_title}</div>
                       <div style={{ fontSize: '0.75rem', color: '#64748b', marginTop: '0.25rem', display: 'flex', alignItems: 'center', gap: '0.35rem' }}>

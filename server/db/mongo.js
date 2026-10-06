@@ -38,6 +38,8 @@ const SemesterSchema = new mongoose.Schema({
   sessionId: { type: mongoose.Schema.Types.ObjectId, ref: 'AcademicSession', required: true, index: true },
   semesterName: { type: String, required: true },
   termCode: { type: String, required: true }, // e.g. 'Y1S1', 'Y3S1'
+  year: { type: Number },
+  semester: { type: Number },
   isActive: { type: Boolean, default: true },
 }, { timestamps: true });
 SemesterSchema.index({ sessionId: 1, termCode: 1 }, { unique: true });
@@ -48,7 +50,12 @@ const CourseSchema = new mongoose.Schema({
   courseCode: { type: String, required: true, uppercase: true, trim: true },
   courseTitle: { type: String, required: true, trim: true },
   creditHours: { type: Number, required: true, default: 3.0 },
-  courseType: { type: String, enum: ['THEORY', 'LAB'], default: 'THEORY' },
+  courseType: { type: String, enum: ['Theory', 'Sessional', 'Viva', 'THEORY', 'LAB', 'SESSIONAL', 'VIVA'], default: 'Theory' },
+  year: { type: Number },
+  semester: { type: Number },
+  termCode: { type: String },
+  isOptional: { type: Boolean, default: false },
+  electiveGroup: { type: String },
   syllabusOutline: { type: String },
   assignedTeacherId: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
 }, { timestamps: true });
@@ -108,10 +115,41 @@ const StudentGrievanceSchema = new mongoose.Schema({
   moderatedAt: { type: Date },
 }, { timestamps: true });
 
+// Course Enrollment Schema
+const CourseEnrollmentSchema = new mongoose.Schema({
+  studentId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true, index: true },
+  courseId: { type: mongoose.Schema.Types.ObjectId, ref: 'Course', required: true, index: true },
+  sessionId: { type: mongoose.Schema.Types.ObjectId, ref: 'AcademicSession', required: true },
+  semesterId: { type: mongoose.Schema.Types.ObjectId, ref: 'Semester', required: true },
+  enrollmentStatus: { type: String, enum: ['ENROLLED', 'DROPPED', 'COMPLETED', 'PENDING'], default: 'ENROLLED' },
+  enrollmentType: { type: String, enum: ['REGULAR', 'RETAKE', 'RECIEVE', 'IMPROVEMENT'], default: 'REGULAR' },
+  enrolledAt: { type: Date, default: Date.now },
+}, { timestamps: true });
+CourseEnrollmentSchema.index({ studentId: 1, courseId: 1 }, { unique: true });
+
+// Student Result Schema
+const StudentResultSchema = new mongoose.Schema({
+  studentId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true, index: true },
+  courseId: { type: mongoose.Schema.Types.ObjectId, ref: 'Course', required: true, index: true },
+  sessionId: { type: mongoose.Schema.Types.ObjectId, ref: 'AcademicSession', required: true },
+  semesterId: { type: mongoose.Schema.Types.ObjectId, ref: 'Semester', required: true },
+  continuousAssessmentMarks: { type: Number, default: 0 },
+  finalExamMarks: { type: Number, default: 0 },
+  totalMarks: { type: Number, default: 0 },
+  gradePoint: { type: Number, default: 0.00 },
+  letterGrade: { type: String, default: 'F' },
+  creditsEarned: { type: Number, default: 0.0 },
+  isPassed: { type: Boolean, default: false },
+  status: { type: String, default: 'PUBLISHED' },
+}, { timestamps: true });
+StudentResultSchema.index({ studentId: 1, courseId: 1 }, { unique: true });
+
 const User = mongoose.model('User', UserSchema);
 const AcademicSession = mongoose.model('AcademicSession', AcademicSessionSchema);
 const Semester = mongoose.model('Semester', SemesterSchema);
 const Course = mongoose.model('Course', CourseSchema);
+const CourseEnrollment = mongoose.model('CourseEnrollment', CourseEnrollmentSchema);
+const StudentResult = mongoose.model('StudentResult', StudentResultSchema);
 const CourseMaterial = mongoose.model('CourseMaterial', CourseMaterialSchema);
 const CTMark = mongoose.model('CTMark', CTMarkSchema);
 const Notice = mongoose.model('Notice', NoticeSchema);
@@ -395,6 +433,8 @@ module.exports = {
   AcademicSession,
   Semester,
   Course,
+  CourseEnrollment,
+  StudentResult,
   CourseMaterial,
   CTMark,
   Notice,

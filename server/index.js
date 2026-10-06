@@ -47,6 +47,8 @@ if (!require('fs').existsSync(sampleDir)) {
 app.use('/api/auth', require('./routes/auth'));
 app.use('/api/academic', require('./routes/academic'));
 app.use('/api/courses', require('./routes/courses'));
+app.use('/api/enrollments', require('./routes/enrollments'));
+app.use('/api/results', require('./routes/results'));
 app.use('/api/notices', require('./routes/notices'));
 app.use('/api/grievances', require('./routes/grievances'));
 app.use('/api/routines', require('./routes/routines'));

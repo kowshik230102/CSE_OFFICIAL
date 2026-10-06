@@ -14,6 +14,7 @@ import { PasswordModal } from './components/AuthModals';
 import { RoutineGeneratorView } from './components/RoutineGeneratorView';
 import { TeacherCoursesView } from './components/TeacherCoursesView';
 import { ContinuousAssessmentView } from './components/ContinuousAssessmentView';
+import { CourseInfoView } from './components/CourseInfoView';
 import { GraduationCap } from 'lucide-react';
 
 export function App() {
@@ -120,6 +121,11 @@ export function App() {
           />
         ) : activeNavTab === 'continuous-assessment' ? (
           <ContinuousAssessmentView
+            user={user}
+            onBackToDashboard={() => setActiveNavTab('dashboard')}
+          />
+        ) : activeNavTab === 'course-info' ? (
+          <CourseInfoView
             user={user}
             onBackToDashboard={() => setActiveNavTab('dashboard')}
           />

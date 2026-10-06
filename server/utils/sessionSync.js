@@ -2,289 +2,79 @@ const crypto = require('crypto');
 const bcrypt = require('bcryptjs');
 const { db } = require('../db/schema');
 
-/**
- * Standard 8 Semesters in PUST CSE Undergrad Program
- */
-const STANDARD_SEMESTERS = [
-  { name: '1st Year 1st Semester', code: 'Y1S1' },
-  { name: '1st Year 2nd Semester', code: 'Y1S2' },
-  { name: '2nd Year 1st Semester', code: 'Y2S1' },
-  { name: '2nd Year 2nd Semester', code: 'Y2S2' },
-  { name: '3rd Year 1st Semester', code: 'Y3S1' },
-  { name: '3rd Year 2nd Semester', code: 'Y3S2' },
-  { name: '4th Year 1st Semester', code: 'Y4S1' },
-  { name: '4th Year 2nd Semester', code: 'Y4S2' },
-];
+const { CURRICULUM_COURSES, SEMESTERS_METADATA } = require('../db/curriculumData');
 
 /**
- * Standard PUST CSE Courses across 8 semesters with official faculty assignments
+ * Standard 8 Semesters in CSE Undergrad Program
  */
-const STANDARD_CURRICULUM = {
-  Y1S1: [
-    {
-      code: 'CSE-1101',
-      title: 'Structured Programming Language',
-      credits: 3.0,
-      type: 'THEORY',
-      teacherId: 't-2', // Dr. Sadia Fatima
-      syllabus: 'C syntax, pointers, control flow, functions, recursion, dynamic memory allocation, and file I/O.'
-    },
-    {
-      code: 'CSE-1102',
-      title: 'Structured Programming Language Sessional (Lab)',
-      credits: 1.5,
-      type: 'LAB',
-      teacherId: 't-2',
-      syllabus: 'Hands-on C programming laboratory exercises and algorithmic implementations.'
-    },
-    {
-      code: 'EEE-1103',
-      title: 'Basic Electrical & Electronic Engineering',
-      credits: 3.0,
-      type: 'THEORY',
-      teacherId: 't-100228', // Assigned faculty
-      syllabus: 'DC/AC circuit theorems, semiconductors, diodes, BJT amplifiers, and op-amps.'
-    },
-    {
-      code: 'MATH-1105',
-      title: 'Differential and Integral Calculus',
-      credits: 3.0,
-      type: 'THEORY',
-      teacherId: 't-100012',
-      syllabus: 'Differential calculus, curvature, series expansions, definite/indefinite integrals, and multivariable calculus.'
-    }
-  ],
-  Y1S2: [
-    {
-      code: 'CSE-1201',
-      title: 'Discrete Mathematics',
-      credits: 3.0,
-      type: 'THEORY',
-      teacherId: 't-100012', // Dr. Md. Niaz Imtiaz
-      syllabus: 'Set theory, propositional logic, graph theory, combinatorics, proof methods, and recurrence relations.'
-    },
-    {
-      code: 'CSE-1203',
-      title: 'Object Oriented Programming',
-      credits: 3.0,
-      type: 'THEORY',
-      teacherId: 't-100214', // Nitun Kumar Podder
-      syllabus: 'OOP paradigms in Java/C++, encapsulation, inheritance, polymorphism, templates, and exception handling.'
-    },
-    {
-      code: 'CSE-1204',
-      title: 'Object Oriented Programming Sessional (Lab)',
-      credits: 1.5,
-      type: 'LAB',
-      teacherId: 't-100214',
-      syllabus: 'Practical Java application building, GUI design with Swing/JavaFX, and design patterns.'
-    },
-    {
-      code: 'MATH-1205',
-      title: 'Linear Algebra and Coordinate Geometry',
-      credits: 3.0,
-      type: 'THEORY',
-      teacherId: 't-100002',
-      syllabus: 'Matrices, vector spaces, eigenvalues, eigenvectors, 2D and 3D coordinate transformations.'
-    }
-  ],
-  Y2S1: [
-    {
-      code: 'CSE-2101',
-      title: 'Data Structures',
-      credits: 3.0,
-      type: 'THEORY',
-      teacherId: 't-100002', // S. M. Hasan Sazzad Iqbal
-      syllabus: 'Arrays, linked lists, stacks, queues, trees, AVL trees, heaps, hashing, and graphs.'
-    },
-    {
-      code: 'CSE-2102',
-      title: 'Data Structures Sessional (Lab)',
-      credits: 1.5,
-      type: 'LAB',
-      teacherId: 't-100002',
-      syllabus: 'C++ implementations of complex data structures and algorithmic efficiency benchmarking.'
-    },
-    {
-      code: 'CSE-2103',
-      title: 'Digital Logic Design',
-      credits: 3.0,
-      type: 'THEORY',
-      teacherId: 't-100012',
-      syllabus: 'Boolean algebra, Karnaugh maps, combinational logic, multiplexers, flip-flops, and sequential circuits.'
-    },
-    {
-      code: 'CSE-2104',
-      title: 'Digital Logic Design Sessional (Lab)',
-      credits: 1.5,
-      type: 'LAB',
-      teacherId: 't-100012',
-      syllabus: 'Hardware breadboard wiring, IC verification, and Verilog HDL simulation.'
-    }
-  ],
-  Y2S2: [
-    {
-      code: 'CSE-2201',
-      title: 'Algorithms Design & Analysis',
-      credits: 3.0,
-      type: 'THEORY',
-      teacherId: 't-100002',
-      syllabus: 'Divide and conquer, greedy algorithms, dynamic programming, network flow, and NP-completeness.'
-    },
-    {
-      code: 'CSE-2202',
-      title: 'Algorithms Design Sessional (Lab)',
-      credits: 1.5,
-      type: 'LAB',
-      teacherId: 't-100214',
-      syllabus: 'Competitive programming challenges, graph traversals (Dijkstra, Bellman-Ford), and DP optimization.'
-    },
-    {
-      code: 'CSE-2203',
-      title: 'Computer Architecture & Organization',
-      credits: 3.0,
-      type: 'THEORY',
-      teacherId: 't-100010', // Dr. Md. Khaled Ben Islam
-      syllabus: 'Instruction set architecture (MIPS/RISC-V), pipelining, hazards, cache hierarchies, and superscalar designs.'
-    },
-    {
-      code: 'CSE-2205',
-      title: 'Numerical Methods & Computation',
-      credits: 3.0,
-      type: 'THEORY',
-      teacherId: 't-100228', // Nakib Aman Turzo
-      syllabus: 'Root finding, interpolation, numerical differentiation/integration, and error analysis.'
-    }
-  ],
-  Y3S1: [
-    {
-      code: 'CSE-3101',
-      title: 'Database Management Systems',
-      credits: 3.0,
-      type: 'THEORY',
-      teacherId: 't-1', // Dr. Mahmudur Rahman
-      syllabus: 'Relational algebra, SQL, E-R modeling, Normalization, transactions, concurrency, and indexing.'
-    },
-    {
-      code: 'CSE-3102',
-      title: 'Database Management Systems Sessional (Lab)',
-      credits: 1.5,
-      type: 'LAB',
-      teacherId: 't-2', // Dr. Sadia Fatima
-      syllabus: 'PostgreSQL database development, triggers, stored procedures, and full-stack API integration.'
-    },
-    {
-      code: 'CSE-3103',
-      title: 'Operating Systems & System Architecture',
-      credits: 3.0,
-      type: 'THEORY',
-      teacherId: 't-100003', // Md. Shafiul Azam
-      syllabus: 'Processes, scheduling, IPC, semaphores, deadlocks, virtual memory, paging, and file systems.'
-    },
-    {
-      code: 'CSE-3104',
-      title: 'Operating Systems & Shell Scripting Lab',
-      credits: 1.5,
-      type: 'LAB',
-      teacherId: 't-100003',
-      syllabus: 'Linux kernel system calls, pthread multithreading, and Bash automation.'
-    }
-  ],
-  Y3S2: [
-    {
-      code: 'CSE-3201',
-      title: 'Software Engineering & Agile Design',
-      credits: 3.0,
-      type: 'THEORY',
-      teacherId: 't-100016', // Dr. Md. Toukir Ahmed
-      syllabus: 'SDLC methodologies, Agile/Scrum, UML architecture, design patterns, testing, and CI/CD.'
-    },
-    {
-      code: 'CSE-3202',
-      title: 'Software Engineering Project Lab',
-      credits: 1.5,
-      type: 'LAB',
-      teacherId: 't-100016',
-      syllabus: 'Semester-long team capstone software product development and deployment.'
-    },
-    {
-      code: 'CSE-3203',
-      title: 'Computer Networks & Protocols',
-      credits: 3.0,
-      type: 'THEORY',
-      teacherId: 't-100016',
-      syllabus: 'OSI & TCP/IP stack, routing protocols (OSPF, BGP), congestion control, DNS, and HTTP/3.'
-    },
-    {
-      code: 'CSE-3204',
-      title: 'Computer Networks Sessional (Lab)',
-      credits: 1.5,
-      type: 'LAB',
-      teacherId: 't-100016',
-      syllabus: 'Socket programming, Cisco Packet Tracer routing configurations, and Wireshark packet capture.'
-    }
-  ],
-  Y4S1: [
-    {
-      code: 'CSE-4101',
-      title: 'Artificial Intelligence & Neural Networks',
-      credits: 3.0,
-      type: 'THEORY',
-      teacherId: 't-100009', // Dr. Md. Abdur Rahim (Professor & Chairman)
-      syllabus: 'Search heuristics, game playing (Minimax/Alpha-Beta), CSP, neural networks, backpropagation, and NLP.'
-    },
-    {
-      code: 'CSE-4102',
-      title: 'Artificial Intelligence & Expert Systems Lab',
-      credits: 1.5,
-      type: 'LAB',
-      teacherId: 't-100009',
-      syllabus: 'Python PyTorch deep learning models, heuristic search solvers, and computer vision classification.'
-    },
-    {
-      code: 'CSE-4103',
-      title: 'Compiler Design & Language Processing',
-      credits: 3.0,
-      type: 'THEORY',
-      teacherId: 't-100228', // Nakib Aman Turzo
-      syllabus: 'Lexical analysis, syntax trees, LL/LR parsing, semantic analysis, intermediate code, and code generation.'
-    },
-    {
-      code: 'CSE-4105',
-      title: 'Digital Image Processing',
-      credits: 3.0,
-      type: 'THEORY',
-      teacherId: 't-100003', // Md. Shafiul Azam
-      syllabus: 'Spatial/frequency filtering, edge detection, Hough transform, segmentation, and feature extraction.'
-    }
-  ],
-  Y4S2: [
-    {
-      code: 'CSE-4201',
-      title: 'Machine Learning & Deep Neural Networks',
-      credits: 3.0,
-      type: 'THEORY',
-      teacherId: 't-100009', // Dr. Md. Abdur Rahim
-      syllabus: 'Supervised/unsupervised learning, SVMs, CNNs, Transformers, attention mechanisms, and reinforcement learning.'
-    },
-    {
-      code: 'CSE-4203',
-      title: 'Cryptography, Cyber Security & Blockchain',
-      credits: 3.0,
-      type: 'THEORY',
-      teacherId: 't-100010', // Dr. Md. Khaled Ben Islam
-      syllabus: 'AES, RSA, ECC, digital signatures, zero-knowledge proofs, network security, and smart contracts.'
-    },
-    {
-      code: 'CSE-4205',
-      title: 'Cloud Computing & Distributed Systems',
-      credits: 3.0,
-      type: 'THEORY',
-      teacherId: 't-100010',
-      syllabus: 'Virtualization, microservices, containerization (Docker/K8s), distributed consensus (Raft/Paxos), and serverless.'
-    }
-  ]
+const STANDARD_SEMESTERS = SEMESTERS_METADATA.map(s => ({
+  name: s.name,
+  code: s.termCode,
+  year: s.year,
+  semester: s.semester
+}));
+
+// Official faculty assignments lookup
+const FACULTY_ASSIGNMENTS = {
+  'CSE 1101': 't-100228', // Nakib Aman Turzo
+  'CSE 1102': 't-2',      // Dr. Sadia Fatima
+  'CSE 1103': 't-2',      // Dr. Sadia Fatima
+  'CSE 1104': 't-2',      // Dr. Sadia Fatima
+  'MATH 1101': 't-100012',
+  'PHY 1101': 't-100228',
+  'HUM 1101': 't-100214',
+  'CSE 1201': 't-100214', // Nitun Kumar Podder
+  'CSE 1202': 't-100214',
+  'CSE 1203': 't-100012', // Dr. Md. Niaz Imtiaz
+  'EEE 1201': 't-100228',
+  'MATH 1201': 't-100002',
+  'CSE 2101': 't-100002', // S. M. Hasan Sazzad Iqbal
+  'CSE 2102': 't-100002',
+  'CSE 2103': 't-100010', // Dr. Md. Khaled Ben Islam
+  'CSE 2104': 't-100010',
+  'CSE 2201': 't-100002', // S. M. Hasan Sazzad Iqbal
+  'CSE 2202': 't-100214',
+  'CSE 2205': 't-100012', // Dr. Md. Niaz Imtiaz
+  'CSE 3101': 't-1',      // Dr. Mahmudur Rahman
+  'CSE 3103': 't-100228', // Nakib Aman Turzo
+  'CSE 3104': 't-100228',
+  'CSE 3107': 't-1',      // Dr. Mahmudur Rahman
+  'CSE 3108': 't-2',      // Dr. Sadia Fatima
+  'CSE 3201': 't-100016', // Dr. Md. Toukir Ahmed
+  'CSE 3203': 't-100003', // Md. Shafiul Azam
+  'CSE 3204': 't-100003',
+  'CSE 3205': 't-100214', // Nitun Kumar Podder
+  'CSE 4101': 't-100016', // Dr. Md. Toukir Ahmed
+  'CSE 4103': 't-100009', // Dr. Md. Abdur Rahim (Chairman)
+  'CSE 4104': 't-100009',
+  'CSE 4119': 't-100009', // Dr. Md. Abdur Rahim
+  'CSE 4201': 't-100016', // Dr. Md. Toukir Ahmed
+  'CSE 4202': 't-100016',
+  'CSE 4203': 't-100002', // S. M. Hasan Sazzad Iqbal
+  'CSE 4207': 't-100010'  // Dr. Md. Khaled Ben Islam
 };
+
+/**
+ * Standard CSE Courses across 8 semesters with official faculty assignments
+ */
+const STANDARD_CURRICULUM = {};
+for (const s of SEMESTERS_METADATA) {
+  STANDARD_CURRICULUM[s.termCode] = CURRICULUM_COURSES
+    .filter(c => c.termCode === s.termCode)
+    .map(c => ({
+      code: c.courseCode,
+      title: c.courseTitle,
+      credits: c.creditHours,
+      type: c.courseType,
+      year: c.year,
+      semester: c.semester,
+      termCode: c.termCode,
+      isOptional: c.isOptional,
+      electiveGroup: c.electiveGroup,
+      teacherId: FACULTY_ASSIGNMENTS[c.courseCode] || 't-1',
+      syllabus: c.syllabusOutline
+    }));
+}
 
 /**
  * Standard student roster template for generating authentic enrolled students per session
@@ -362,15 +152,28 @@ function ensureSessionWithStandardCourses(sessionNameInput, startDateInput, endD
   for (const semDef of STANDARD_SEMESTERS) {
     if (!semesterMap[semDef.code]) {
       const semId = `sem-${session.id}-${semDef.code.toLowerCase()}`;
-      insertSemester.run(semId, session.id, semDef.name, semDef.code, semDef.code === 'Y3S1' ? 1 : 0);
+      insertSemester.run(semId, session.id, semDef.name, semDef.code, semDef.year, semDef.semester, semDef.code === 'Y3S1' ? 1 : 0);
       semesterMap[semDef.code] = semId;
     }
   }
 
   // 3. Ensure standard courses exist under each semester
   const insertCourse = db.prepare(`
-    INSERT INTO courses (id, semester_id, course_code, course_title, credit_hours, course_type, syllabus_outline)
-    VALUES (?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO courses (
+      id, semester_id, course_code, course_title, credit_hours, course_type,
+      year, semester, term_code, is_optional, elective_group, syllabus_outline
+    )
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(semester_id, course_code) DO UPDATE SET
+      course_title = excluded.course_title,
+      credit_hours = excluded.credit_hours,
+      course_type = excluded.course_type,
+      year = excluded.year,
+      semester = excluded.semester,
+      term_code = excluded.term_code,
+      is_optional = excluded.is_optional,
+      elective_group = excluded.elective_group,
+      syllabus_outline = excluded.syllabus_outline
   `);
 
   const insertAssignment = db.prepare(`
@@ -399,31 +202,42 @@ function ensureSessionWithStandardCourses(sessionNameInput, startDateInput, endD
       let courseId = courseCodeMap[cDef.code];
       if (!courseId) {
         courseId = `c-${session.id}-${cDef.code.toLowerCase().replace(/[^a-z0-9]/g, '')}`;
-        try {
-          insertCourse.run(
-            courseId,
-            semId,
-            cDef.code,
-            cDef.title,
-            cDef.credits,
-            cDef.type,
-            cDef.syllabus
-          );
-          courseCodeMap[cDef.code] = courseId;
-        } catch (e) {
-          // If id collision, generate random
-          courseId = 'c-' + crypto.randomUUID();
-          insertCourse.run(
-            courseId,
-            semId,
-            cDef.code,
-            cDef.title,
-            cDef.credits,
-            cDef.type,
-            cDef.syllabus
-          );
-          courseCodeMap[cDef.code] = courseId;
-        }
+      }
+
+      try {
+        insertCourse.run(
+          courseId,
+          semId,
+          cDef.code,
+          cDef.title,
+          cDef.credits,
+          cDef.type,
+          cDef.year,
+          cDef.semester,
+          cDef.termCode,
+          cDef.isOptional ? 1 : 0,
+          cDef.electiveGroup || null,
+          cDef.syllabus
+        );
+        courseCodeMap[cDef.code] = courseId;
+      } catch (e) {
+        // If id collision, generate random
+        courseId = 'c-' + crypto.randomUUID();
+        insertCourse.run(
+          courseId,
+          semId,
+          cDef.code,
+          cDef.title,
+          cDef.credits,
+          cDef.type,
+          cDef.year,
+          cDef.semester,
+          cDef.termCode,
+          cDef.isOptional ? 1 : 0,
+          cDef.electiveGroup || null,
+          cDef.syllabus
+        );
+        courseCodeMap[cDef.code] = courseId;
       }
 
       // Assign teacher if designated and not yet assigned

@@ -9,6 +9,7 @@ const { db } = require('../db/schema');
 const config = require('../config');
 const { authenticateUser, requireRoles } = require('../middleware/auth');
 const { verifyCourseFaculty } = require('../middleware/courseOwnership');
+const { CURRICULUM_METADATA, SEMESTERS_METADATA, CURRICULUM_COURSES } = require('../db/curriculumData');
 
 // Configure Multer for File Uploads
 const storage = multer.diskStorage({
@@ -24,6 +25,41 @@ const storage = multer.diskStorage({
 const upload = multer({
   storage,
   limits: { fileSize: 50 * 1024 * 1024 }, // 50 MB
+});
+
+// 0. GET OFFICIAL CURRICULUM (ALL 8 SEMESTERS)
+router.get('/curriculum', (req, res) => {
+  const groupedSemesters = SEMESTERS_METADATA.map(sem => {
+    const semCourses = CURRICULUM_COURSES.filter(c => c.termCode === sem.termCode);
+    return {
+      ...sem,
+      totalCourses: semCourses.length,
+      coreCredits: semCourses.filter(c => !c.isOptional).reduce((acc, c) => acc + c.creditHours, 0),
+      courses: semCourses
+    };
+  });
+
+  return res.json({
+    metadata: CURRICULUM_METADATA,
+    totalCourses: CURRICULUM_COURSES.length,
+    semesters: groupedSemesters,
+    allCourses: CURRICULUM_COURSES
+  });
+});
+
+// 0B. GET CURRICULUM SUMMARY STATISTICS
+router.get('/curriculum/summary', (req, res) => {
+  const summary = {
+    totalCoursesCount: CURRICULUM_COURSES.length,
+    coreCoursesCount: CURRICULUM_COURSES.filter(c => !c.isOptional).length,
+    optionalCoursesCount: CURRICULUM_COURSES.filter(c => c.isOptional).length,
+    theoryCoursesCount: CURRICULUM_COURSES.filter(c => c.courseType === 'Theory').length,
+    sessionalCoursesCount: CURRICULUM_COURSES.filter(c => c.courseType === 'Sessional').length,
+    vivaCoursesCount: CURRICULUM_COURSES.filter(c => c.courseType === 'Viva').length,
+    totalCreditsAvailable: CURRICULUM_COURSES.reduce((sum, c) => sum + c.creditHours, 0),
+    minimumGraduationCredits: CURRICULUM_METADATA.minGraduationCredits
+  };
+  return res.json({ summary, metadata: CURRICULUM_METADATA });
 });
 
 // 1. GET ALL COURSES ASSIGNED TO THE LOGGED-IN TEACHER
