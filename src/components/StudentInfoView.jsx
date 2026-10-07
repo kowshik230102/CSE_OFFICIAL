@@ -452,7 +452,10 @@ export function StudentInfoView({ onBackToDashboard }) {
 
   // Browser Print trigger
   const handlePrint = () => {
-    window.print();
+    setEditingRowSl(null);
+    setTimeout(() => {
+      window.print();
+    }, 50);
   };
 
   return (
@@ -689,17 +692,17 @@ export function StudentInfoView({ onBackToDashboard }) {
         }}
       >
         {/* Printable Official University Header (Visible only when Printing) */}
-        <div className="print-only" style={{ display: 'none', padding: '1.5rem', textAlign: 'center', borderBottom: '2px solid #0f172a' }}>
-          <div style={{ fontSize: '1.35rem', fontWeight: 900, textTransform: 'uppercase', letterSpacing: '0.04em', color: '#0f172a' }}>
+        <div className="print-only print-sheet-header">
+          <div className="univ-title">
             Pabna University of Science and Technology
           </div>
-          <div style={{ fontSize: '1.05rem', fontWeight: 800, color: '#1e40af', marginTop: '0.2rem' }}>
+          <div className="dept-title">
             Department of Computer Science & Engineering
           </div>
-          <div style={{ fontSize: '0.95rem', fontWeight: 800, color: '#059669', marginTop: '0.35rem', textTransform: 'uppercase' }}>
+          <div className="sheet-title">
             Official Student Information & Roster Sheet
           </div>
-          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.85rem', fontWeight: 700, marginTop: '0.75rem', color: '#475569' }}>
+          <div className="meta-bar">
             <span>Session: <strong>{activeSessionObj?.session_name || 'Selected Session'}</strong></span>
             <span>Intake Capacity: <strong>40 Seats</strong></span>
             <span>Enrolled Students: <strong>{enrolledCount}</strong></span>
@@ -842,7 +845,7 @@ export function StudentInfoView({ onBackToDashboard }) {
           </div>
         ) : (
           <div 
-            className="table-responsive" 
+            className="table-responsive student-sheet-responsive" 
             style={{ 
               overflowX: 'auto', 
               width: '100%',
@@ -856,22 +859,21 @@ export function StudentInfoView({ onBackToDashboard }) {
                 width: '100%',
                 borderCollapse: 'collapse',
                 fontSize: '0.84rem',
-                textAlign: 'left',
-                minWidth: '1950px' // Generous width ensuring zero clipping for all columns
+                textAlign: 'left'
               }}
             >
               <thead>
                 <tr style={{ background: '#f8fafc', color: '#1e293b', borderBottom: '2px solid #cbd5e1', fontWeight: 800 }}>
-                  <th style={{ padding: '0.85rem 0.65rem', width: '55px', minWidth: '55px', textAlign: 'center' }}>SL</th>
-                  <th style={{ padding: '0.85rem 0.85rem', width: '140px', minWidth: '130px' }}>Roll</th>
-                  <th style={{ padding: '0.85rem 0.85rem', width: '160px', minWidth: '150px' }}>Registration</th>
-                  <th style={{ padding: '0.85rem 0.85rem', width: '280px', minWidth: '260px' }}>Student Name</th>
-                  <th style={{ padding: '0.85rem 0.85rem', width: '160px', minWidth: '150px' }}>Contact No.</th>
-                  <th style={{ padding: '0.85rem 0.85rem', width: '260px', minWidth: '240px' }}>Father Name</th>
-                  <th style={{ padding: '0.85rem 0.85rem', width: '160px', minWidth: '150px' }}>Father Contact</th>
-                  <th style={{ padding: '0.85rem 0.85rem', width: '260px', minWidth: '240px' }}>Mother Name</th>
-                  <th style={{ padding: '0.85rem 0.85rem', width: '380px', minWidth: '350px' }}>Address</th>
-                  <th className="no-print" style={{ padding: '0.85rem 0.85rem', width: '140px', minWidth: '130px', textAlign: 'center' }}>Actions</th>
+                  <th className="th-col-sl" style={{ padding: '0.85rem 0.65rem', textAlign: 'center' }}>SL</th>
+                  <th className="th-col-roll" style={{ padding: '0.85rem 0.85rem' }}>Roll</th>
+                  <th className="th-col-reg" style={{ padding: '0.85rem 0.85rem' }}>Registration</th>
+                  <th className="th-col-name" style={{ padding: '0.85rem 0.85rem' }}>Student Name</th>
+                  <th className="th-col-contact" style={{ padding: '0.85rem 0.85rem' }}>Contact No.</th>
+                  <th className="th-col-father" style={{ padding: '0.85rem 0.85rem' }}>Father Name</th>
+                  <th className="th-col-father-contact" style={{ padding: '0.85rem 0.85rem' }}>Father Contact</th>
+                  <th className="th-col-mother" style={{ padding: '0.85rem 0.85rem' }}>Mother Name</th>
+                  <th className="th-col-address" style={{ padding: '0.85rem 0.85rem' }}>Address</th>
+                  <th className="th-col-actions no-print" style={{ padding: '0.85rem 0.85rem', textAlign: 'center' }}>Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -894,7 +896,7 @@ export function StudentInfoView({ onBackToDashboard }) {
                       }}
                     >
                       {/* 1. SL */}
-                      <td style={{
+                      <td className="td-col-sl" style={{
                         padding: '0.75rem 0.65rem',
                         textAlign: 'center',
                         fontWeight: 800,
@@ -906,7 +908,7 @@ export function StudentInfoView({ onBackToDashboard }) {
                       </td>
 
                       {/* 2. Roll */}
-                      <td style={{ padding: '0.6rem 0.85rem' }}>
+                      <td className="td-col-roll" style={{ padding: '0.6rem 0.85rem' }}>
                         {isEditing ? (
                           <input
                             type="text"
@@ -941,7 +943,7 @@ export function StudentInfoView({ onBackToDashboard }) {
                       </td>
 
                       {/* 3. Registration */}
-                      <td style={{ padding: '0.6rem 0.85rem' }}>
+                      <td className="td-col-reg" style={{ padding: '0.6rem 0.85rem' }}>
                         {isEditing ? (
                           <input
                             type="text"
@@ -968,7 +970,7 @@ export function StudentInfoView({ onBackToDashboard }) {
                       </td>
 
                       {/* 4. Student Name (Generous 280px) */}
-                      <td style={{ padding: '0.6rem 0.85rem' }}>
+                      <td className="td-col-name" style={{ padding: '0.6rem 0.85rem' }}>
                         {isEditing ? (
                           <input
                             type="text"
@@ -1004,7 +1006,7 @@ export function StudentInfoView({ onBackToDashboard }) {
                       </td>
 
                       {/* 5. Contact No. */}
-                      <td style={{ padding: '0.6rem 0.85rem' }}>
+                      <td className="td-col-contact" style={{ padding: '0.6rem 0.85rem' }}>
                         {isEditing ? (
                           <input
                             type="text"
@@ -1030,7 +1032,7 @@ export function StudentInfoView({ onBackToDashboard }) {
                       </td>
 
                       {/* 6. Father Name (Generous 260px) */}
-                      <td style={{ padding: '0.6rem 0.85rem' }}>
+                      <td className="td-col-father" style={{ padding: '0.6rem 0.85rem' }}>
                         {isEditing ? (
                           <input
                             type="text"
@@ -1064,7 +1066,7 @@ export function StudentInfoView({ onBackToDashboard }) {
                       </td>
 
                       {/* 7. Father Contact */}
-                      <td style={{ padding: '0.6rem 0.85rem' }}>
+                      <td className="td-col-father-contact" style={{ padding: '0.6rem 0.85rem' }}>
                         {isEditing ? (
                           <input
                             type="text"
@@ -1090,7 +1092,7 @@ export function StudentInfoView({ onBackToDashboard }) {
                       </td>
 
                       {/* 8. Mother Name (Generous 260px) */}
-                      <td style={{ padding: '0.6rem 0.85rem' }}>
+                      <td className="td-col-mother" style={{ padding: '0.6rem 0.85rem' }}>
                         {isEditing ? (
                           <input
                             type="text"
@@ -1124,7 +1126,7 @@ export function StudentInfoView({ onBackToDashboard }) {
                       </td>
 
                       {/* 9. Address (Significantly wider 380px) */}
-                      <td style={{ padding: '0.6rem 0.85rem' }}>
+                      <td className="td-col-address" style={{ padding: '0.6rem 0.85rem' }}>
                         {isEditing ? (
                           <input
                             type="text"
@@ -1159,7 +1161,7 @@ export function StudentInfoView({ onBackToDashboard }) {
                       </td>
 
                       {/* 10. Actions (Edit / Save / Cancel / Clear) */}
-                      <td className="no-print" style={{ padding: '0.6rem 0.85rem', textAlign: 'center' }}>
+                      <td className="td-col-actions no-print" style={{ padding: '0.6rem 0.85rem', textAlign: 'center' }}>
                         {isEditing ? (
                           <div style={{ display: 'inline-flex', alignItems: 'center', gap: '0.35rem' }}>
                             <button
@@ -1255,24 +1257,24 @@ export function StudentInfoView({ onBackToDashboard }) {
         )}
 
         {/* Printable Official Signatures (Visible only when Printing) */}
-        <div className="print-only" style={{ display: 'none', padding: '3rem 1.5rem 1rem', marginTop: '2rem' }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'center', fontSize: '0.85rem' }}>
+        <div className="print-only print-sheet-signatures">
+          <table className="sig-table">
             <tbody>
               <tr>
-                <td style={{ width: '33%', verticalAlign: 'bottom' }}>
-                  <div style={{ borderTop: '1px solid #0f172a', paddingTop: '0.4rem', width: '80%', margin: '0 auto' }}>
+                <td style={{ width: '33%', verticalAlign: 'bottom', textAlign: 'center' }}>
+                  <div className="sig-line">
                     <strong>Prepared By</strong><br />
                     Academic Office Assistant
                   </div>
                 </td>
-                <td style={{ width: '33%', verticalAlign: 'bottom' }}>
-                  <div style={{ borderTop: '1px solid #0f172a', paddingTop: '0.4rem', width: '80%', margin: '0 auto' }}>
+                <td style={{ width: '33%', verticalAlign: 'bottom', textAlign: 'center' }}>
+                  <div className="sig-line">
                     <strong>Verified By</strong><br />
                     Session / Batch Coordinator
                   </div>
                 </td>
-                <td style={{ width: '33%', verticalAlign: 'bottom' }}>
-                  <div style={{ borderTop: '1px solid #0f172a', paddingTop: '0.4rem', width: '80%', margin: '0 auto' }}>
+                <td style={{ width: '33%', verticalAlign: 'bottom', textAlign: 'center' }}>
+                  <div className="sig-line">
                     <strong>Approved By</strong><br />
                     Chairman, Department of CSE
                   </div>

@@ -2193,61 +2193,59 @@ body {
 }
 
 /* ==========================================================================
-   Academic Routine & Timetable Print & PDF Export Styles
+   Student Information Sheet - Screen & Responsive Styles
    ========================================================================== */
+.print-only {
+  display: none !important;
+}
+
+.student-sheet-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.84rem;
+  text-align: left;
+  min-width: 1950px; /* Generous width for screen editing so fields never clip */
+}
+
+/* Screen column widths: generous room for typing and reading */
+.th-col-sl, .td-col-sl { width: 55px; min-width: 55px; text-align: center; }
+.th-col-roll, .td-col-roll { width: 140px; min-width: 130px; }
+.th-col-reg, .td-col-reg { width: 160px; min-width: 150px; }
+.th-col-name, .td-col-name { width: 280px; min-width: 260px; }
+.th-col-contact, .td-col-contact { width: 160px; min-width: 150px; }
+.th-col-father, .td-col-father { width: 260px; min-width: 240px; }
+.th-col-father-contact, .td-col-father-contact { width: 160px; min-width: 150px; }
+.th-col-mother, .td-col-mother { width: 260px; min-width: 240px; }
+.th-col-address, .td-col-address { width: 380px; min-width: 350px; }
+.th-col-actions, .td-col-actions { width: 140px; min-width: 130px; text-align: center; }
+
+/* ==========================================================================
+   A4 Landscape Print & PDF Export Styles
+   ========================================================================== */
+@page {
+  size: A4 landscape;
+  margin: 5mm 6mm 5mm 6mm;
+}
+
 @media print {
-  /* Hide interactive non-printable elements */
+  /* Hide interactive and non-printable elements */
+  .no-print,
   .top-nav,
+  .navbar,
+  .sidebar,
   .sidebar-drawer,
   .sidebar-drawer-overlay,
   .routine-header-card button,
   .routine-builder-wrapper > div:nth-child(2),
+  .modal-overlay,
+  .th-col-actions,
+  .td-col-actions,
   .card button,
   .btn,
+  button,
   header,
   aside,
   nav {
-    display: none !important;
-  }
-
-  body {
-    background: #ffffff !important;
-    color: #000000 !important;
-    padding: 0 !important;
-    margin: 0 !important;
-    font-size: 10pt !important;
-  }
-
-  .content-area {
-    padding: 0 !important;
-    max-width: 100% !important;
-    margin: 0 !important;
-  }
-
-  .routine-builder-wrapper {
-    padding: 0 !important;
-  }
-
-  .card {
-    box-shadow: none !important;
-    border: 1px solid #cbd5e1 !important;
-    background: #ffffff !important;
-    page-break-inside: avoid;
-    margin-bottom: 20px !important;
-  }
-
-  table {
-    width: 100% !important;
-    border-collapse: collapse !important;
-    font-size: 9pt !important;
-  }
-
-  th, td {
-    border: 1px solid #cbd5e1 !important;
-    padding: 6px !important;
-  }
-
-  .no-print {
     display: none !important;
   }
 
@@ -2255,31 +2253,255 @@ body {
     display: block !important;
   }
 
-  .student-sheet-card {
-    border: none !important;
-    box-shadow: none !important;
-    padding: 0 !important;
+  html, body {
+    width: 100% !important;
+    height: auto !important;
     margin: 0 !important;
+    padding: 0 !important;
+    background: #ffffff !important;
+    color: #000000 !important;
+    font-size: 7.5pt !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  .app-container,
+  .content-area,
+  .main-layout,
+  .student-info-page,
+  .student-sheet-card,
+  .routine-builder-wrapper {
+    display: block !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    background: #ffffff !important;
+    box-shadow: none !important;
+    border: none !important;
+    border-radius: 0 !important;
+    overflow: visible !important;
+    gap: 0 !important;
+  }
+
+  /* Disable horizontal scrolling/overflow during print */
+  .table-responsive,
+  .student-sheet-responsive {
+    overflow: visible !important;
+    overflow-x: visible !important;
+    overflow-y: visible !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    margin: 0 !important;
+    padding: 0 !important;
+  }
+
+  /* Clean Professional Print Header */
+  .print-sheet-header {
+    display: block !important;
+    padding: 1px 0 3px 0 !important;
+    margin: 0 0 3px 0 !important;
+    text-align: center !important;
+    border-bottom: 1.5px solid #0f172a !important;
+  }
+
+  .print-sheet-header .univ-title {
+    font-size: 11pt !important;
+    font-weight: 900 !important;
+    text-transform: uppercase !important;
+    letter-spacing: 0.04em !important;
+    color: #0f172a !important;
+    margin: 0 !important;
+    line-height: 1.15 !important;
+  }
+
+  .print-sheet-header .dept-title {
+    font-size: 9pt !important;
+    font-weight: 800 !important;
+    color: #1e40af !important;
+    margin: 1px 0 !important;
+    line-height: 1.15 !important;
+  }
+
+  .print-sheet-header .sheet-title {
+    font-size: 7.8pt !important;
+    font-weight: 800 !important;
+    color: #047857 !important;
+    text-transform: uppercase !important;
+    margin: 1px 0 !important;
+    letter-spacing: 0.03em !important;
+    line-height: 1.15 !important;
+  }
+
+  .print-sheet-header .meta-bar {
+    display: flex !important;
+    justify-content: space-between !important;
+    font-size: 6.8pt !important;
+    font-weight: 700 !important;
+    color: #334155 !important;
+    margin-top: 2px !important;
+    padding-top: 1px !important;
+    line-height: 1.1 !important;
+  }
+
+  /* Print Table Layout - Proportional A4 Landscape (100% total) */
+  .student-sheet-table {
+    width: 100% !important;
+    min-width: 100% !important;
+    max-width: 100% !important;
+    table-layout: fixed !important;
+    border-collapse: collapse !important;
+    margin: 0 !important;
+    font-size: 7pt !important;
+    page-break-inside: auto !important;
+  }
+
+  .student-sheet-table thead {
+    display: table-header-group !important;
+  }
+
+  .student-sheet-table tr {
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
   }
 
   .student-sheet-table th,
   .student-sheet-table td {
-    border: 1px solid #0f172a !important;
+    border: 1px solid #1e293b !important;
     color: #000000 !important;
-    padding: 4px 6px !important;
-    font-size: 8pt !important;
+    background: #ffffff !important;
+    padding: 1.5px 3px !important;
+    font-size: 6.8pt !important;
+    line-height: 1.15 !important;
+    white-space: normal !important;
+    word-break: break-word !important;
+    overflow-wrap: anywhere !important;
+    vertical-align: middle !important;
+    box-sizing: border-box !important;
   }
 
   .student-sheet-table th {
     background: #e2e8f0 !important;
     font-weight: 800 !important;
-    -webkit-print-color-adjust: exact;
-    print-color-adjust: exact;
+    text-align: left !important;
+    font-size: 7pt !important;
+    text-transform: uppercase !important;
+    letter-spacing: 0.01em !important;
+    padding: 2.5px 3px !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
   }
 
-  @page {
-    size: A4 landscape;
-    margin: 1cm;
+  /* Proportional A4 Landscape Column Widths (Sum = 100%) */
+  .th-col-sl, .td-col-sl {
+    width: 3.5% !important;
+    min-width: 0 !important;
+    max-width: 3.5% !important;
+    text-align: center !important;
+    padding: 1.5px 1px !important;
+  }
+  .th-col-roll, .td-col-roll {
+    width: 8.5% !important;
+    min-width: 0 !important;
+    max-width: 8.5% !important;
+    font-family: var(--font-mono) !important;
+    font-weight: 700 !important;
+  }
+  .th-col-reg, .td-col-reg {
+    width: 9% !important;
+    min-width: 0 !important;
+    max-width: 9% !important;
+    font-family: var(--font-mono) !important;
+  }
+  .th-col-name, .td-col-name {
+    width: 16% !important;
+    min-width: 0 !important;
+    max-width: 16% !important;
+    font-weight: 700 !important;
+  }
+  .th-col-contact, .td-col-contact {
+    width: 9% !important;
+    min-width: 0 !important;
+    max-width: 9% !important;
+  }
+  .th-col-father, .td-col-father {
+    width: 14.5% !important;
+    min-width: 0 !important;
+    max-width: 14.5% !important;
+  }
+  .th-col-father-contact, .td-col-father-contact {
+    width: 9% !important;
+    min-width: 0 !important;
+    max-width: 9% !important;
+  }
+  .th-col-mother, .td-col-mother {
+    width: 14% !important;
+    min-width: 0 !important;
+    max-width: 14% !important;
+  }
+  .th-col-address, .td-col-address {
+    width: 16.5% !important;
+    min-width: 0 !important;
+    max-width: 16.5% !important;
+  }
+
+  .student-sheet-table td span {
+    font-size: 6.8pt !important;
+    line-height: 1.15 !important;
+    white-space: normal !important;
+    word-break: break-word !important;
+    overflow-wrap: anywhere !important;
+    color: #000000 !important;
+    display: inline !important;
+  }
+
+  /* Compact Print Signatures */
+  .print-sheet-signatures {
+    display: block !important;
+    padding: 8px 0 0 0 !important;
+    margin-top: 6px !important;
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
+  }
+  .print-sheet-signatures table.sig-table {
+    width: 100% !important;
+    border-collapse: collapse !important;
+    border: none !important;
+  }
+  .print-sheet-signatures table.sig-table td {
+    border: none !important;
+    padding: 0 10px !important;
+    font-size: 7pt !important;
+    line-height: 1.15 !important;
+    background: transparent !important;
+  }
+  .print-sheet-signatures .sig-line {
+    border-top: 1px solid #0f172a !important;
+    padding-top: 2px !important;
+    width: 75% !important;
+    margin: 0 auto !important;
+    font-size: 6.8pt !important;
+  }
+
+  /* Routine & Timetable fallback print rules */
+  .card {
+    box-shadow: none !important;
+    border: 1px solid #cbd5e1 !important;
+    background: #ffffff !important;
+    page-break-inside: avoid;
+    margin-bottom: 10px !important;
+  }
+
+  table:not(.student-sheet-table):not(.sig-table) {
+    width: 100% !important;
+    border-collapse: collapse !important;
+    font-size: 8.5pt !important;
+  }
+
+  table:not(.student-sheet-table):not(.sig-table) th,
+  table:not(.student-sheet-table):not(.sig-table) td {
+    border: 1px solid #cbd5e1 !important;
+    padding: 4px 6px !important;
   }
 }
 
