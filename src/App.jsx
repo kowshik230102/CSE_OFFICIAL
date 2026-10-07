@@ -15,6 +15,7 @@ import { RoutineGeneratorView } from './components/RoutineGeneratorView';
 import { TeacherCoursesView } from './components/TeacherCoursesView';
 import { ContinuousAssessmentView } from './components/ContinuousAssessmentView';
 import { CourseInfoView } from './components/CourseInfoView';
+import { StudentInfoView } from './components/StudentInfoView';
 import { GraduationCap } from 'lucide-react';
 
 export function App() {
@@ -126,6 +127,11 @@ export function App() {
           />
         ) : activeNavTab === 'course-info' ? (
           <CourseInfoView
+            user={user}
+            onBackToDashboard={() => setActiveNavTab('dashboard')}
+          />
+        ) : activeNavTab === 'student-info' ? (
+          <StudentInfoView
             user={user}
             onBackToDashboard={() => setActiveNavTab('dashboard')}
           />

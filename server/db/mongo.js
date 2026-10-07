@@ -22,6 +22,11 @@ const UserSchema = new mongoose.Schema({
     studentRoll: { type: String, sparse: true, uppercase: true },
     registrationNo: { type: String },
     currentSessionId: { type: mongoose.Schema.Types.ObjectId, ref: 'AcademicSession' },
+    serialNo: { type: Number },
+    fatherName: { type: String },
+    fatherContact: { type: String },
+    motherName: { type: String },
+    address: { type: String },
   },
 }, { timestamps: true });
 

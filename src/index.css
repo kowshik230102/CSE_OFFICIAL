@@ -2247,9 +2247,39 @@ body {
     padding: 6px !important;
   }
 
+  .no-print {
+    display: none !important;
+  }
+
+  .print-only {
+    display: block !important;
+  }
+
+  .student-sheet-card {
+    border: none !important;
+    box-shadow: none !important;
+    padding: 0 !important;
+    margin: 0 !important;
+  }
+
+  .student-sheet-table th,
+  .student-sheet-table td {
+    border: 1px solid #0f172a !important;
+    color: #000000 !important;
+    padding: 4px 6px !important;
+    font-size: 8pt !important;
+  }
+
+  .student-sheet-table th {
+    background: #e2e8f0 !important;
+    font-weight: 800 !important;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
   @page {
     size: A4 landscape;
-    margin: 1.2cm;
+    margin: 1cm;
   }
 }
 

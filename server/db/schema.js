@@ -59,6 +59,11 @@ function initializeDatabase() {
       student_roll TEXT UNIQUE NOT NULL,
       registration_no TEXT UNIQUE NOT NULL,
       current_session_id TEXT NOT NULL REFERENCES academic_sessions(id) ON DELETE RESTRICT,
+      serial_no INTEGER,
+      father_name TEXT,
+      father_contact TEXT,
+      mother_name TEXT,
+      address TEXT,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
 
@@ -250,6 +255,21 @@ function initializeDatabase() {
   } catch (e) {
     // Ignore if index creation fails
   }
+
+  // Gracefully migrate students table columns for full session-wise student information sheet
+  const studentExtraCols = [
+    `ALTER TABLE students ADD COLUMN serial_no INTEGER`,
+    `ALTER TABLE students ADD COLUMN father_name TEXT`,
+    `ALTER TABLE students ADD COLUMN father_contact TEXT`,
+    `ALTER TABLE students ADD COLUMN mother_name TEXT`,
+    `ALTER TABLE students ADD COLUMN address TEXT`,
+  ];
+  for (const q of studentExtraCols) {
+    try { db.exec(q); } catch (e) { /* Column already exists */ }
+  }
+  try {
+    db.exec(`CREATE INDEX IF NOT EXISTS idx_students_session_serial ON students(current_session_id, serial_no)`);
+  } catch (e) { /* Index already exists */ }
 
   // Gracefully migrate teachers table columns for full PUST faculty profile
   const teacherExtraCols = [

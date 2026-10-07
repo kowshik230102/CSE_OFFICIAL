@@ -12,10 +12,10 @@ function requireAcademicAuthority(req, res, next) {
     return res.status(401).json({ error: 'Authentication required.' });
   }
   const isChair = req.user.email === 'chair.cse_pust@gmail.com' || req.user.role === 'ADMIN' || (req.user.designation && req.user.designation.toLowerCase().includes('chair'));
-  if (['OFFICE_STAFF', 'ADMIN'].includes(req.user.role) || isChair) {
+  if (['OFFICE_STAFF', 'ADMIN', 'TEACHER'].includes(req.user.role) || isChair) {
     return next();
   }
-  return res.status(403).json({ error: 'Access Denied: Only Department Chairman or Academic Office Staff can perform this action.' });
+  return res.status(403).json({ error: 'Access Denied: Only Department Faculty, Chairman, or Academic Office Staff can perform this action.' });
 }
 
 // ==========================================
@@ -545,6 +545,428 @@ router.post('/students', authenticateUser, requireAcademicAuthority, (req, res) 
     });
   } catch (err) {
     return res.status(500).json({ error: 'Failed to enroll student: ' + err.message });
+  }
+});
+
+// ==========================================
+// 7. SESSION-WISE STUDENT INFORMATION SHEET (40 SEATS / CUSTOM CAPACITY)
+// ==========================================
+
+// Helper: require student sheet access
+function requireStudentSheetAccess(req, res, next) {
+  if (!req.user) {
+    return res.status(401).json({ error: 'Authentication required.' });
+  }
+  const isChair = req.user.email === 'chair.cse_pust@gmail.com' || req.user.role === 'ADMIN' || (req.user.designation && req.user.designation.toLowerCase().includes('chair'));
+  if (['OFFICE_STAFF', 'ADMIN', 'TEACHER'].includes(req.user.role) || isChair) {
+    return next();
+  }
+  return res.status(403).json({ error: 'Access Denied: Only Department Faculty, Chairman, or Academic Office Staff can edit student records.' });
+}
+
+// 1. GET full student sheet for a session
+router.get('/sessions/:sessionId/student-sheet', authenticateUser, (req, res) => {
+  const { sessionId } = req.params;
+  try {
+    const session = db.prepare('SELECT * FROM academic_sessions WHERE id = ?').get(sessionId);
+    if (!session) {
+      return res.status(404).json({ error: 'Session not found.' });
+    }
+
+    const students = db.prepare(`
+      SELECT s.id as student_id,
+             s.serial_no,
+             s.student_roll,
+             s.registration_no,
+             s.father_name,
+             s.father_contact,
+             s.mother_name,
+             s.address,
+             s.created_at as student_created_at,
+             u.id as user_id,
+             u.first_name,
+             u.last_name,
+             TRIM(u.first_name || ' ' || COALESCE(u.last_name, '')) as student_name,
+             u.email,
+             u.phone_number as contact_no,
+             u.status as user_status
+      FROM students s
+      JOIN users u ON u.id = s.user_id
+      WHERE s.current_session_id = ?
+      ORDER BY 
+        CASE WHEN s.serial_no IS NOT NULL AND s.serial_no > 0 THEN s.serial_no ELSE 999999 END ASC,
+        s.student_roll ASC
+    `).all(sessionId);
+
+    return res.json({
+      session,
+      students,
+      total_enrolled: students.length
+    });
+  } catch (err) {
+    return res.status(500).json({ error: 'Failed to fetch student sheet: ' + err.message });
+  }
+});
+
+// 2. UPSERT single student row in the session sheet
+router.post('/sessions/:sessionId/student-sheet/row', authenticateUser, requireStudentSheetAccess, (req, res) => {
+  const { sessionId } = req.params;
+  const {
+    studentId,
+    serialNo,
+    studentRoll,
+    registrationNo,
+    studentName,
+    contactNo,
+    fatherName,
+    fatherContact,
+    motherName,
+    address
+  } = req.body;
+
+  if (!studentRoll || !studentRoll.toString().trim()) {
+    return res.status(400).json({ error: 'Roll number is required.' });
+  }
+
+  const cleanRoll = studentRoll.toString().trim().toUpperCase();
+  const cleanReg = (registrationNo || '').toString().trim();
+  const cleanSerial = serialNo !== undefined && serialNo !== null && serialNo !== '' ? parseInt(serialNo, 10) : null;
+  const cleanContact = (contactNo || '').toString().trim();
+  const cleanFatherName = (fatherName || '').toString().trim();
+  const cleanFatherContact = (fatherContact || '').toString().trim();
+  const cleanMotherName = (motherName || '').toString().trim();
+  const cleanAddress = (address || '').toString().trim();
+
+  // Parse Student Name into firstName & lastName
+  let rawName = (studentName || '').toString().trim();
+  let firstName = rawName;
+  let lastName = '';
+  if (rawName.includes(' ')) {
+    const parts = rawName.split(/\s+/);
+    lastName = parts.pop();
+    firstName = parts.join(' ');
+  } else if (!rawName) {
+    firstName = 'Student';
+    lastName = cleanRoll;
+  }
+
+  try {
+    const session = db.prepare('SELECT id FROM academic_sessions WHERE id = ?').get(sessionId);
+    if (!session) {
+      return res.status(404).json({ error: 'Session not found.' });
+    }
+
+    let existingStudent = null;
+    if (studentId) {
+      existingStudent = db.prepare('SELECT * FROM students WHERE id = ?').get(studentId);
+    }
+    if (!existingStudent) {
+      // Check if student with this roll already exists in this session
+      existingStudent = db.prepare('SELECT * FROM students WHERE UPPER(student_roll) = ? AND current_session_id = ?').get(cleanRoll, sessionId);
+    }
+    if (!existingStudent) {
+      // If student with this roll exists in the system, adopt and update them for this session
+      existingStudent = db.prepare('SELECT * FROM students WHERE UPPER(student_roll) = ?').get(cleanRoll);
+    }
+
+    // Check roll collision with a different student record
+    if (existingStudent) {
+      const rollConflict = db.prepare('SELECT id FROM students WHERE UPPER(student_roll) = ? AND id != ?').get(cleanRoll, existingStudent.id);
+      if (rollConflict) {
+        return res.status(400).json({ error: `Roll "${cleanRoll}" is already assigned to another student in the system.` });
+      }
+    }
+
+    let savedStudentId = existingStudent ? existingStudent.id : null;
+
+    const transaction = db.transaction(() => {
+      if (existingStudent) {
+        // UPDATE existing student
+        db.prepare(`
+          UPDATE students
+          SET serial_no = ?,
+              student_roll = ?,
+              registration_no = ?,
+              current_session_id = ?,
+              father_name = ?,
+              father_contact = ?,
+              mother_name = ?,
+              address = ?
+          WHERE id = ?
+        `).run(
+          cleanSerial,
+          cleanRoll,
+          cleanReg || existingStudent.registration_no,
+          sessionId,
+          cleanFatherName,
+          cleanFatherContact,
+          cleanMotherName,
+          cleanAddress,
+          existingStudent.id
+        );
+
+        // UPDATE corresponding user record so names and phones sync everywhere
+        db.prepare(`
+          UPDATE users
+          SET first_name = ?,
+              last_name = ?,
+              phone_number = ?,
+              updated_at = CURRENT_TIMESTAMP
+          WHERE id = ?
+        `).run(
+          firstName,
+          lastName,
+          cleanContact || null,
+          existingStudent.user_id
+        );
+        savedStudentId = existingStudent.id;
+      } else {
+        // INSERT new student
+        const newUserId = 'u-' + crypto.randomUUID();
+        const newStudentId = 's-' + crypto.randomUUID();
+        const baseEmail = `${cleanRoll.toLowerCase().replace(/[^a-z0-9]/g, '')}@cse.pust.ac.bd`;
+        let finalEmail = baseEmail;
+        const emailCheck = db.prepare('SELECT id FROM users WHERE LOWER(email) = LOWER(?)').get(finalEmail);
+        if (emailCheck) {
+          finalEmail = `${cleanRoll.toLowerCase().replace(/[^a-z0-9]/g, '')}_${Date.now()}@cse.pust.ac.bd`;
+        }
+
+        db.prepare(`
+          INSERT INTO users (id, email, password_hash, role, status, first_name, last_name, phone_number)
+          VALUES (?, ?, ?, 'STUDENT', 'ACTIVE', ?, ?, ?)
+        `).run(
+          newUserId,
+          finalEmail,
+          bcrypt.hashSync('12345678', 10),
+          firstName,
+          lastName,
+          cleanContact || null
+        );
+
+        db.prepare(`
+          INSERT INTO students (id, user_id, student_roll, registration_no, current_session_id, serial_no, father_name, father_contact, mother_name, address)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `).run(
+          newStudentId,
+          newUserId,
+          cleanRoll,
+          cleanReg || ('REG-' + Math.floor(100000 + Math.random() * 900000)),
+          sessionId,
+          cleanSerial,
+          cleanFatherName,
+          cleanFatherContact,
+          cleanMotherName,
+          cleanAddress
+        );
+        savedStudentId = newStudentId;
+      }
+    });
+
+    transaction();
+
+    // Fetch the updated student row to return immediately
+    const row = db.prepare(`
+      SELECT s.id as student_id,
+             s.serial_no,
+             s.student_roll,
+             s.registration_no,
+             s.father_name,
+             s.father_contact,
+             s.mother_name,
+             s.address,
+             u.id as user_id,
+             u.first_name,
+             u.last_name,
+             TRIM(u.first_name || ' ' || COALESCE(u.last_name, '')) as student_name,
+             u.email,
+             u.phone_number as contact_no
+      FROM students s
+      JOIN users u ON u.id = s.user_id
+      WHERE s.id = ?
+    `).get(savedStudentId);
+
+    return res.json({
+      message: `Student ${cleanRoll} saved successfully!`,
+      student: row
+    });
+  } catch (err) {
+    return res.status(500).json({ error: 'Failed to save student: ' + err.message });
+  }
+});
+
+// 3. BATCH SAVE / UPDATE multiple student rows in the session sheet
+router.post('/sessions/:sessionId/student-sheet/batch', authenticateUser, requireStudentSheetAccess, (req, res) => {
+  const { sessionId } = req.params;
+  const { rows } = req.body;
+
+  if (!Array.isArray(rows) || rows.length === 0) {
+    return res.status(400).json({ error: 'No student rows provided to save.' });
+  }
+
+  const session = db.prepare('SELECT id FROM academic_sessions WHERE id = ?').get(sessionId);
+  if (!session) {
+    return res.status(404).json({ error: 'Session not found.' });
+  }
+
+  let savedCount = 0;
+
+  const transaction = db.transaction(() => {
+    for (let i = 0; i < rows.length; i++) {
+      const r = rows[i];
+      if (!r || !r.studentRoll || !r.studentRoll.toString().trim()) {
+        continue; // skip completely empty slot rows
+      }
+
+      const cleanRoll = r.studentRoll.toString().trim().toUpperCase();
+      const cleanReg = (r.registrationNo || '').toString().trim();
+      const cleanSerial = r.serialNo !== undefined && r.serialNo !== null && r.serialNo !== '' ? parseInt(r.serialNo, 10) : (i + 1);
+      const cleanContact = (r.contactNo || '').toString().trim();
+      const cleanFatherName = (r.fatherName || '').toString().trim();
+      const cleanFatherContact = (r.fatherContact || '').toString().trim();
+      const cleanMotherName = (r.motherName || '').toString().trim();
+      const cleanAddress = (r.address || '').toString().trim();
+
+      let rawName = (r.studentName || '').toString().trim();
+      let firstName = rawName;
+      let lastName = '';
+      if (rawName.includes(' ')) {
+        const parts = rawName.split(/\s+/);
+        lastName = parts.pop();
+        firstName = parts.join(' ');
+      } else if (!rawName) {
+        firstName = 'Student';
+        lastName = cleanRoll;
+      }
+
+      let existing = null;
+      if (r.studentId) {
+        existing = db.prepare('SELECT * FROM students WHERE id = ?').get(r.studentId);
+      }
+      if (!existing) {
+        existing = db.prepare('SELECT * FROM students WHERE UPPER(student_roll) = ? AND current_session_id = ?').get(cleanRoll, sessionId);
+      }
+      if (!existing) {
+        existing = db.prepare('SELECT * FROM students WHERE UPPER(student_roll) = ?').get(cleanRoll);
+      }
+
+      if (existing) {
+        // Update existing record
+        db.prepare(`
+          UPDATE students
+          SET serial_no = ?,
+              student_roll = ?,
+              registration_no = ?,
+              current_session_id = ?,
+              father_name = ?,
+              father_contact = ?,
+              mother_name = ?,
+              address = ?
+          WHERE id = ?
+        `).run(
+          cleanSerial,
+          cleanRoll,
+          cleanReg || existing.registration_no,
+          sessionId,
+          cleanFatherName,
+          cleanFatherContact,
+          cleanMotherName,
+          cleanAddress,
+          existing.id
+        );
+
+        db.prepare(`
+          UPDATE users
+          SET first_name = ?,
+              last_name = ?,
+              phone_number = ?,
+              updated_at = CURRENT_TIMESTAMP
+          WHERE id = ?
+        `).run(
+          firstName,
+          lastName,
+          cleanContact || null,
+          existing.user_id
+        );
+        savedCount++;
+      } else {
+        // Insert new record
+        const newUserId = 'u-' + crypto.randomUUID();
+        const newStudentId = 's-' + crypto.randomUUID();
+        let finalEmail = `${cleanRoll.toLowerCase().replace(/[^a-z0-9]/g, '')}@cse.pust.ac.bd`;
+        const emailCheck = db.prepare('SELECT id FROM users WHERE LOWER(email) = LOWER(?)').get(finalEmail);
+        if (emailCheck) {
+          finalEmail = `${cleanRoll.toLowerCase().replace(/[^a-z0-9]/g, '')}_${Date.now()}@cse.pust.ac.bd`;
+        }
+
+        db.prepare(`
+          INSERT INTO users (id, email, password_hash, role, status, first_name, last_name, phone_number)
+          VALUES (?, ?, ?, 'STUDENT', 'ACTIVE', ?, ?, ?)
+        `).run(
+          newUserId,
+          finalEmail,
+          bcrypt.hashSync('12345678', 10),
+          firstName,
+          lastName,
+          cleanContact || null
+        );
+
+        db.prepare(`
+          INSERT INTO students (id, user_id, student_roll, registration_no, current_session_id, serial_no, father_name, father_contact, mother_name, address)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `).run(
+          newStudentId,
+          newUserId,
+          cleanRoll,
+          cleanReg || ('REG-' + Math.floor(100000 + Math.random() * 900000)),
+          sessionId,
+          cleanSerial,
+          cleanFatherName,
+          cleanFatherContact,
+          cleanMotherName,
+          cleanAddress
+        );
+        savedCount++;
+      }
+    }
+  });
+
+  try {
+    transaction();
+    return res.json({
+      message: `Batch update successful: saved ${savedCount} student records.`,
+      savedCount
+    });
+  } catch (err) {
+    return res.status(500).json({ error: 'Failed to batch save student sheet: ' + err.message });
+  }
+});
+
+// 4. CLEAR / DELETE a student row from the session sheet
+router.delete('/sessions/:sessionId/student-sheet/:studentId', authenticateUser, requireStudentSheetAccess, (req, res) => {
+  const { sessionId, studentId } = req.params;
+  try {
+    const student = db.prepare('SELECT * FROM students WHERE id = ? AND current_session_id = ?').get(studentId, sessionId);
+    if (!student) {
+      return res.status(404).json({ error: 'Student record not found in this session.' });
+    }
+
+    const transaction = db.transaction(() => {
+      // Clean up CT marks
+      db.prepare('DELETE FROM ct_marks WHERE student_id = ?').run(studentId);
+      // Clean up enrollments
+      db.prepare('DELETE FROM course_enrollments WHERE student_id = ?').run(studentId);
+      // Clean up results
+      db.prepare('DELETE FROM student_results WHERE student_id = ?').run(studentId);
+      // Clean up student profile
+      db.prepare('DELETE FROM students WHERE id = ?').run(studentId);
+      // Clean up user account
+      db.prepare('DELETE FROM users WHERE id = ?').run(student.user_id);
+    });
+
+    transaction();
+    return res.json({ message: `Student (${student.student_roll}) cleared from session successfully.` });
+  } catch (err) {
+    return res.status(500).json({ error: 'Failed to delete student: ' + err.message });
   }
 });
 
