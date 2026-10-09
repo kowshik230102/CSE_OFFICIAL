@@ -309,6 +309,55 @@ function initializeDatabase() {
     try { db.exec(q); } catch (e) { /* Column already exists */ }
   }
 
+  // Gracefully migrate routines table columns for multi-semester routine management
+  const routineExtraCols = [
+    `ALTER TABLE routines ADD COLUMN department TEXT DEFAULT 'CSE'`,
+    `ALTER TABLE routines ADD COLUMN effective_from DATE`,
+    `ALTER TABLE routines ADD COLUMN academic_year TEXT`,
+    `ALTER TABLE routines ADD COLUMN version_number TEXT DEFAULT 'v1.0'`,
+    `ALTER TABLE routines ADD COLUMN is_active INTEGER DEFAULT 0`
+  ];
+  for (const q of routineExtraCols) {
+    try { db.exec(q); } catch (e) { /* Column already exists */ }
+  }
+
+  // Gracefully migrate courses table columns
+  try {
+    db.exec(`ALTER TABLE courses ADD COLUMN lifecycle_status TEXT DEFAULT 'ACTIVE'`);
+  } catch (e) { /* Column already exists */ }
+
+  // 14. ROUTINE VERSIONS & AUDIT LOG TABLE
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS routine_versions (
+      id TEXT PRIMARY KEY,
+      routine_id TEXT NOT NULL REFERENCES routines(id) ON DELETE CASCADE,
+      version_number TEXT NOT NULL,
+      title TEXT NOT NULL,
+      department TEXT DEFAULT 'CSE',
+      session_name TEXT,
+      semester_names TEXT,
+      effective_from DATE,
+      academic_year TEXT,
+      change_summary TEXT,
+      changes_data TEXT,
+      routine_snapshot TEXT NOT NULL,
+      created_by TEXT REFERENCES users(id) ON DELETE SET NULL,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE INDEX IF NOT EXISTS idx_routine_versions_routine ON routine_versions(routine_id, created_at DESC);
+
+    CREATE TABLE IF NOT EXISTS non_dept_teachers (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      department TEXT NOT NULL,
+      phone_number TEXT,
+      designation TEXT,
+      email TEXT,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE(name, department)
+    );
+  `);
+
   // Curriculum, enrollment, and results indexes
   const extraIndexes = [
     `CREATE INDEX IF NOT EXISTS idx_courses_year_sem ON courses(year, semester)`,

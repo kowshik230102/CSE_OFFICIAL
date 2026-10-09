@@ -1,2685 +1,3817 @@
 import React, { useState, useEffect, useMemo } from 'react';
+import { useAuth } from '../context/AuthContext';
 import { 
+  Calendar, 
   CalendarCheck, 
   CalendarClock, 
-  BookOpen, 
-  Users, 
-  Clock, 
-  MapPin, 
-  Phone, 
-  Building2, 
-  Sparkles, 
-  CheckCircle2, 
-  AlertTriangle, 
+  Plus, 
+  PlusCircle, 
+  Search, 
   Edit3, 
   Trash2, 
-  Plus, 
-  Download, 
-  Printer, 
-  Share2, 
-  Save, 
   ArrowLeft, 
-  Layers, 
-  FlaskConical, 
+  Check, 
+  X, 
+  AlertCircle, 
+  CheckCircle2, 
+  RefreshCw, 
+  BookOpen, 
+  Users, 
+  UserMinus, 
+  UserCheck, 
+  Save, 
+  Eye, 
   GraduationCap, 
+  Layers, 
+  Clock, 
+  Building2, 
   FileText,
-  Search,
-  Check,
-  X,
-  FileSpreadsheet,
-  HelpCircle,
-  Eye,
-  RefreshCw,
-  FolderOpen
+  FolderOpen,
+  Briefcase,
+  UserX,
+  Info,
+  ChevronRight,
+  AlertTriangle,
+  Grid,
+  Printer,
+  Download,
+  Lock,
+  Unlock,
+  Sparkles,
+  History,
+  Send,
+  Copy,
+  RotateCcw,
+  FlaskConical,
+  HelpCircle
 } from 'lucide-react';
-import { exportRoutineToWord } from '../utils/routineExport';
 
-export function RoutineGeneratorView({ user, onBackToDashboard, onNavigateNoticeBoard }) {
-  // Main Mode: CLASS_ROUTINE or EXAM_ROUTINE
-  const [routineMode, setRoutineMode] = useState('CLASS_ROUTINE');
+import {
+  SCHEDULE_DAYS,
+  SCHEDULE_PERIODS,
+  TEACHING_PERIOD_IDS,
+  BREAK_PERIOD_ID,
+  COMMON_ROOMS,
+  getPeriodById,
+  getCoveredPeriodIds,
+  getSlotTimeRangeLabel,
+  normalizeSlot,
+  checkSlotConflict,
+  validateEntireSchedule,
+  getCourseScheduledHours,
+  calculateWeeklyHours,
+  getAvailableRoom,
+  mergeAdjacentSameCourseSlots
+} from '../utils/scheduleConfig';
 
-  // Academic Hierarchy States
-  const [sessions, setSessions] = useState([]);
-  const [selectedSessionId, setSelectedSessionId] = useState('');
-  const [semesters, setSemesters] = useState([]);
-  const [selectedSemesterId, setSelectedSemesterId] = useState('');
-  const [teachers, setTeachers] = useState([]);
-  const [crossSessionBusySlots, setCrossSessionBusySlots] = useState({});
+import { exportOfficialRoutineToWord } from '../utils/routineExport';
 
-  // Loading & Feedback
-  const [loadingInitial, setLoadingInitial] = useState(true);
-  const [loadingCourses, setLoadingCourses] = useState(false);
-  const [actionLoading, setActionLoading] = useState(false);
-  const [notification, setNotification] = useState(null);
+// Routine Management Sub-Components
+import { RoutineLandingHeader } from './routine/RoutineLandingHeader';
+import { ClassRoutineDashboard } from './routine/ClassRoutineDashboard';
+import { SemesterCourseManager } from './routine/SemesterCourseManager';
+import { TeacherAssignmentModal } from './routine/TeacherAssignmentModal';
+import { AutoScheduleModal } from './routine/AutoScheduleModal';
+import { RoutineHistoryModal } from './routine/RoutineHistoryModal';
+import { PublishSummaryModal } from './routine/PublishSummaryModal';
+import { CourseFormModal } from './routine/CourseFormModal';
+import { CopySemesterModal } from './routine/CopySemesterModal';
+import { CourseDragPanel } from './routine/CourseDragPanel';
+import { ManualScheduleModal } from './routine/ManualScheduleModal';
 
-  // Configuration States for Builder
-  const [routineTitle, setRoutineTitle] = useState('');
-  const [configuredCourses, setConfiguredCourses] = useState([]);
-  const [configuredExams, setConfiguredExams] = useState([]);
+export function RoutineGeneratorView({ user: propUser, onBackToDashboard, onNavigateNoticeBoard }) {
+  const { token: contextToken, user: contextUser } = useAuth();
+  const user = contextUser || propUser;
 
-  // Multi-session Routine Builder state
-  const [sessionsInRoutine, setSessionsInRoutine] = useState([]);
-
-  // Generated Routine Preview State
-  const [isGenerated, setIsGenerated] = useState(false);
-  const [savedRoutineId, setSavedRoutineId] = useState(null);
-  const [routineStatus, setRoutineStatus] = useState('DRAFT');
-
-  // Interactive Edit Modal States
-  const [editingItem, setEditingItem] = useState(null);
-  const [isEditModalOpen, setIsEditModalOpen] = useState(false);
-
-  // Saved Routines Drawer Modal
-  const [isSavedDrawerOpen, setIsSavedDrawerOpen] = useState(false);
-  const [savedRoutinesList, setSavedRoutinesList] = useState([]);
-
-  // Standard Weekday Options (PUST Academic Calendar)
-  const weekdays = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday'];
-  const standardPeriods = [
-    '09:00 AM - 10:00 AM',
-    '10:00 AM - 11:00 AM',
-    '11:00 AM - 12:00 PM',
-    '12:00 PM - 01:00 PM',
-    '02:00 PM - 03:00 PM',
-    '03:00 PM - 04:00 PM',
-    '04:00 PM - 05:00 PM'
-  ];
-  const standardLabBlocks = [
-    '10:00 AM - 01:00 PM (3 Hours)',
-    '11:00 AM - 01:00 PM (2 Hours)',
-    '02:00 PM - 05:00 PM (3 Hours)',
-    '02:00 PM - 04:00 PM (2 Hours)'
-  ];
-
-  // Helper notification toast
-  const showToast = (message, type = 'success') => {
-    setNotification({ message, type });
-    setTimeout(() => setNotification(null), 4500);
+  // Auth headers helper
+  const getAuthHeaders = () => {
+    const curToken = contextToken || localStorage.getItem('cse_token') || localStorage.getItem('token');
+    return curToken ? { Authorization: `Bearer ${curToken}` } : {};
   };
 
-  // 1. Initial Load: Academic Sessions & Faculty Teachers
-  useEffect(() => {
-    async function loadInitialData() {
-      setLoadingInitial(true);
-      const token = localStorage.getItem('token');
-      const headers = token ? { Authorization: `Bearer ${token}` } : {};
-
-      try {
-        const [sessRes, teachRes, busyRes] = await Promise.all([
-          fetch('/api/academic/sessions', { credentials: 'include', headers }),
-          fetch('/api/auth/teachers', { credentials: 'include', headers }),
-          fetch('/api/routines/teacher-busy-slots', { credentials: 'include', headers })
-        ]);
-
-        const sessData = await sessRes.json();
-        const teachData = await teachRes.json();
-        const busyData = await busyRes.json();
-
-        if (sessData.sessions && sessData.sessions.length > 0) {
-          setSessions(sessData.sessions);
-          // Auto select current active session if exists, otherwise first
-          const current = sessData.sessions.find(s => s.is_current) || sessData.sessions[0];
-          setSelectedSessionId(current.id);
-        }
-
-        if (teachData.teachers) {
-          setTeachers(teachData.teachers);
-        }
-
-        if (busyData.teacherSchedules) {
-          setCrossSessionBusySlots(busyData.teacherSchedules);
-        }
-      } catch (err) {
-        console.error('Failed to load initial routine builder data:', err);
-      } finally {
-        setLoadingInitial(false);
-      }
-    }
-
-    loadInitialData();
-  }, []);
-
-  // 2. Load Semesters whenever Selected Session Changes
-  useEffect(() => {
-    if (!selectedSessionId) return;
-
-    async function loadSemesters() {
-      const token = localStorage.getItem('token');
-      const headers = token ? { Authorization: `Bearer ${token}` } : {};
-
-      try {
-        const res = await fetch(`/api/academic/sessions/${selectedSessionId}/semesters`, { credentials: 'include', headers });
-        const data = await res.json();
-
-        if (data.semesters && data.semesters.length > 0) {
-          setSemesters(data.semesters);
-          // Automatically pick the running semester (is_active === 1) as requested by user
-          const running = data.semesters.find(s => s.is_active === 1) || data.semesters[0];
-          setSelectedSemesterId(running.id);
-        } else {
-          setSemesters([]);
-          setSelectedSemesterId('');
-          setConfiguredCourses([]);
-          setConfiguredExams([]);
-        }
-      } catch (err) {
-        console.error('Failed to load semesters:', err);
-      }
-    }
-
-    loadSemesters();
-  }, [selectedSessionId]);
-
-  // 3. Load Courses for Selected Semester
-  useEffect(() => {
-    if (!selectedSemesterId) return;
-
-    async function loadCourses() {
-      setLoadingCourses(true);
-      const token = localStorage.getItem('token');
-      const headers = token ? { Authorization: `Bearer ${token}` } : {};
-
-      try {
-        const res = await fetch(`/api/academic/semesters/${selectedSemesterId}/courses`, { credentials: 'include', headers });
-        const data = await res.json();
-
-        const currentSession = sessions.find(s => s.id === selectedSessionId);
-        const currentSemester = semesters.find(s => s.id === selectedSemesterId);
-
-        // Auto-generate a descriptive routine title if empty
-        if (!routineTitle || routineTitle.startsWith('Class Routine') || routineTitle.startsWith('Exam Routine')) {
-          const sessTitle = currentSession?.session_name || 'Session';
-          const semTitle = currentSemester?.semester_name || 'Semester';
-          if (routineMode === 'CLASS_ROUTINE') {
-            setRoutineTitle(`Official Class Routine - ${sessTitle} (${semTitle})`);
-          } else {
-            setRoutineTitle(`Semester Final Examination Routine - ${sessTitle} (${semTitle})`);
-          }
-        }
-
-        if (data.courses && Array.isArray(data.courses)) {
-          // Initialize Configured Courses with smart defaults and teacher auto-fill
-          const initialCourses = data.courses.map(c => {
-            const isLab = c.course_type === 'LAB' || (c.course_title && c.course_title.toLowerCase().includes('lab')) || (c.course_title && c.course_title.toLowerCase().includes('sessional'));
-            
-            // Check if course already has assigned teacher
-            const assignedTeacher = teachers.find(t => t.teacher_id === c.assigned_teacher_id) || null;
-
-            return {
-              courseId: c.id,
-              courseCode: c.course_code,
-              courseTitle: c.course_title,
-              creditHours: c.credit_hours,
-              courseType: isLab ? 'LAB' : 'THEORY',
-              // Teacher Information
-              teacherType: 'CSE', // 'CSE' or 'EXTERNAL'
-              teacherId: assignedTeacher ? assignedTeacher.teacher_id : (teachers[0]?.teacher_id || ''),
-              teacherName: assignedTeacher ? `${assignedTeacher.first_name} ${assignedTeacher.last_name}` : (teachers[0] ? `${teachers[0].first_name} ${teachers[0].last_name}` : ''),
-              teacherDept: 'CSE',
-              teacherPhone: assignedTeacher?.phone_number || teachers[0]?.phone_number || '+8801700000000',
-              roomNumber: isLab ? 'Software Lab 1' : 'Room 401',
-              // Lab Specific Properties
-              labTitle: isLab ? `${c.course_title} Practical` : '',
-              labSerial: isLab ? 'Lab 1' : '',
-              labDurationHours: isLab ? 3 : 1,
-              // Allocated Time Slots (Day + Time Period)
-              timeSlots: []
-            };
-          });
-
-          setConfiguredCourses(initialCourses);
-
-          // Initialize Exam courses
-          const initialExams = data.courses.map((c, idx) => {
-            const assignedTeacher = teachers.find(t => t.teacher_id === c.assigned_teacher_id) || null;
-            return {
-              courseId: c.id,
-              courseCode: c.course_code,
-              courseTitle: c.course_title,
-              creditHours: c.credit_hours,
-              serial: idx + 1,
-              date: '',
-              day: '',
-              timeSlot: '10:00 AM - 01:00 PM',
-              roomNumber: 'Gallery Room 401 & 402',
-              invigilatorName: assignedTeacher ? `${assignedTeacher.first_name} ${assignedTeacher.last_name}` : (teachers[0] ? `${teachers[0].first_name} ${teachers[0].last_name}` : 'Course Teacher'),
-              teacherDept: 'CSE',
-              teacherPhone: assignedTeacher?.phone_number || teachers[0]?.phone_number || '+8801700000000'
-            };
-          });
-
-          setConfiguredExams(initialExams);
-        }
-      } catch (err) {
-        console.error('Failed to load courses:', err);
-      } finally {
-        setLoadingCourses(false);
-      }
-    }
-
-    loadCourses();
-  }, [selectedSemesterId, routineMode, teachers]);
-
-  // Handle Teacher Dropdown Selection for a Course (Auto-fills Phone & Dept from Sir's profile!)
-  const handleTeacherChange = (courseIndex, teacherIdOrType) => {
-    setConfiguredCourses(prev => {
-      const updated = [...prev];
-      const target = { ...updated[courseIndex] };
-
-      if (teacherIdOrType === 'EXTERNAL') {
-        target.teacherType = 'EXTERNAL';
-        target.teacherId = '';
-        target.teacherName = '';
-        target.teacherDept = 'Other Dept';
-        target.teacherPhone = '';
-      } else {
-        const found = teachers.find(t => t.teacher_id === teacherIdOrType);
-        if (found) {
-          target.teacherType = 'CSE';
-          target.teacherId = found.teacher_id;
-          target.teacherName = `${found.first_name} ${found.last_name}`;
-          target.teacherDept = found.department_code || 'CSE';
-          // Auto-fill phone number from sir's verified profile
-          target.teacherPhone = found.phone_number || '+8801700000000';
-          if (found.room_number && target.courseType !== 'LAB') {
-            target.roomNumber = found.room_number;
-          }
-        }
-      }
-
-      updated[courseIndex] = target;
-      return updated;
-    });
-  };
-
-  // Handle Exam Invigilator/Teacher Change
-  const handleExamTeacherChange = (examIndex, teacherIdOrType) => {
-    setConfiguredExams(prev => {
-      const updated = [...prev];
-      const target = { ...updated[examIndex] };
-
-      if (teacherIdOrType === 'EXTERNAL') {
-        target.invigilatorName = '';
-        target.teacherDept = 'Other Dept';
-        target.teacherPhone = '';
-      } else {
-        const found = teachers.find(t => t.teacher_id === teacherIdOrType);
-        if (found) {
-          target.invigilatorName = `${found.first_name} ${found.last_name}`;
-          target.teacherDept = found.department_code || 'CSE';
-          target.teacherPhone = found.phone_number || '+8801700000000';
-        }
-      }
-
-      updated[examIndex] = target;
-      return updated;
-    });
-  };
-
-  // Add / Remove a Time Slot for a Course
-  const handleAddSlot = (courseIndex, day, timeSlot) => {
-    setConfiguredCourses(prev => {
-      const updated = [...prev];
-      const target = { ...updated[courseIndex] };
-      const currentSlots = Array.isArray(target.timeSlots) ? [...target.timeSlots] : [];
-
-      const exists = currentSlots.some(s => s.day === day && s.timeSlot === timeSlot);
-      if (exists) {
-        target.timeSlots = currentSlots.filter(s => !(s.day === day && s.timeSlot === timeSlot));
-      } else {
-        target.timeSlots = [...currentSlots, { day, timeSlot, roomNumber: target.roomNumber }];
-      }
-
-      updated[courseIndex] = target;
-      return updated;
-    });
-  };
-
-  // Calculate day of week automatically when exam date is chosen
-  const handleExamDateChange = (examIndex, dateStr) => {
-    setConfiguredExams(prev => {
-      const updated = [...prev];
-      const target = { ...updated[examIndex] };
-      target.date = dateStr;
-
-      if (dateStr) {
-        const d = new Date(dateStr);
-        const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
-        target.day = dayNames[d.getDay()];
-      } else {
-        target.day = '';
-      }
-
-      updated[examIndex] = target;
-      return updated;
-    });
-  };
-
-  // Helper: Get Teacher Busy Slots from other sessions (Website Data Integration)
-  const getTeacherBusyList = (teacherId, teacherName) => {
-    const key = teacherId || teacherName?.trim().toLowerCase();
-    if (!key || !crossSessionBusySlots[key]) return [];
-    return crossSessionBusySlots[key];
-  };
-
-  // 1-Click Smart Auto-Schedule Engine (Super Time-Efficient Routine Generation)
-  const handleSmartAutoSchedule = () => {
-    const currentSession = sessions.find(s => s.id === selectedSessionId);
-    const sessionName = currentSession?.session_name || 'Current Session';
-
-    let dayIndex = 0;
-    let periodIndex = 0;
-
-    const scheduled = configuredCourses.map(course => {
-      const isLab = course.courseType === 'LAB';
-      const slots = [];
-
-      if (isLab) {
-        // Labs get a dedicated 3-hour block on Tuesday or Wednesday afternoon
-        const labDay = dayIndex % 2 === 0 ? 'Tuesday' : 'Wednesday';
-        const labTime = '02:00 PM - 05:00 PM';
-        slots.push({
-          day: labDay,
-          timeSlot: labTime,
-          roomNumber: course.roomNumber || 'Software Lab 1'
-        });
-        dayIndex++;
-      } else {
-        // Theory courses get contact hours based on credits (e.g. 3 classes per week)
-        const creditCount = Math.min(Math.round(course.creditHours || 3), 3);
-        const assignedDays = ['Sunday', 'Monday', 'Thursday'];
-
-        for (let i = 0; i < creditCount; i++) {
-          const day = assignedDays[i % assignedDays.length];
-          const period = standardPeriods[periodIndex % standardPeriods.length];
-          slots.push({
-            day,
-            timeSlot: period,
-            roomNumber: course.roomNumber || 'Room 401'
-          });
-          periodIndex = (periodIndex + 1) % standardPeriods.length;
-        }
-      }
-
-      return {
-        ...course,
-        timeSlots: slots
-      };
-    });
-
-    setConfiguredCourses(scheduled);
-    showToast('⚡ Conflict-free schedule auto-generated for all courses based on credits & faculty availability!', 'success');
-  };
-
-  // Step 3: Click to Generate Routine (Make Routine for this Session)
-  const handleGenerateRoutine = () => {
-    const currentSession = sessions.find(s => s.id === selectedSessionId);
-    const currentSemester = semesters.find(s => s.id === selectedSemesterId);
-
-    if (routineMode === 'CLASS_ROUTINE') {
-      // Ensure at least one course has a time slot
-      const hasSlots = configuredCourses.some(c => Array.isArray(c.timeSlots) && c.timeSlots.length > 0);
-      if (!hasSlots) {
-        // Auto-assign if none selected to save user work!
-        handleSmartAutoSchedule();
-      }
-
-      const sessionObj = {
-        sessionId: selectedSessionId,
-        sessionName: currentSession?.session_name || 'Academic Session',
-        semesterId: selectedSemesterId,
-        semesterName: currentSemester?.semester_name || 'Current Semester',
-        termCode: currentSemester?.term_code || '',
-        courses: configuredCourses
-      };
-
-      // Add to sessionsInRoutine if not already added
-      const existingIdx = sessionsInRoutine.findIndex(s => s.sessionId === selectedSessionId && s.semesterId === selectedSemesterId);
-      if (existingIdx >= 0) {
-        const copy = [...sessionsInRoutine];
-        copy[existingIdx] = sessionObj;
-        setSessionsInRoutine(copy);
-      } else {
-        setSessionsInRoutine(prev => [...prev, sessionObj]);
-      }
-
-      setIsGenerated(true);
-      showToast('🎉 Class Routine generated successfully! Review timetable below with quick-edit support.', 'success');
-    } else {
-      // Exam Routine
-      setIsGenerated(true);
-      showToast('🎉 Exam Routine generated successfully! Review exam dates & halls below.', 'success');
-    }
-  };
-
-  // Interactive Quick Edit: Open Modal
-  const handleOpenEditModal = (item, type = 'SLOT', parentCourse = null) => {
-    setEditingItem({
-      ...item,
-      editType: type,
-      parentCourse
-    });
-    setIsEditModalOpen(true);
-  };
-
-  // Save Interactive Edit
-  const handleSaveEdit = () => {
-    if (!editingItem) return;
-
-    if (routineMode === 'CLASS_ROUTINE') {
-      // Update in sessionsInRoutine
-      setSessionsInRoutine(prev => {
-        return prev.map(sess => {
-          const updatedCourses = sess.courses.map(course => {
-            if (course.courseId === editingItem.parentCourse?.courseId || course.courseId === editingItem.courseId) {
-              const updatedCourse = { ...course };
-              
-              if (editingItem.editType === 'COURSE') {
-                updatedCourse.teacherName = editingItem.teacherName;
-                updatedCourse.teacherDept = editingItem.teacherDept;
-                updatedCourse.teacherPhone = editingItem.teacherPhone;
-                updatedCourse.roomNumber = editingItem.roomNumber;
-                if (editingItem.labTitle) updatedCourse.labTitle = editingItem.labTitle;
-                if (editingItem.labSerial) updatedCourse.labSerial = editingItem.labSerial;
-              } else if (editingItem.editType === 'SLOT') {
-                // Update specific slot
-                if (Array.isArray(updatedCourse.timeSlots)) {
-                  updatedCourse.timeSlots = updatedCourse.timeSlots.map(s => {
-                    if (s.day === editingItem.oldDay && s.timeSlot === editingItem.oldTimeSlot) {
-                      return {
-                        day: editingItem.newDay || s.day,
-                        timeSlot: editingItem.newTimeSlot || s.timeSlot,
-                        roomNumber: editingItem.newRoomNumber || s.roomNumber
-                      };
-                    }
-                    return s;
-                  });
-                }
-              }
-              return updatedCourse;
-            }
-            return course;
-          });
-          return { ...sess, courses: updatedCourses };
-        });
-      });
-    } else {
-      // Exam Routine Edit
-      setConfiguredExams(prev => {
-        return prev.map(ex => {
-          if (ex.courseId === editingItem.courseId) {
-            return {
-              ...ex,
-              date: editingItem.date,
-              day: editingItem.day,
-              timeSlot: editingItem.timeSlot,
-              roomNumber: editingItem.roomNumber,
-              invigilatorName: editingItem.invigilatorName,
-              teacherPhone: editingItem.teacherPhone
-            };
-          }
-          return ex;
-        });
-      });
-    }
-
-    setIsEditModalOpen(false);
-    showToast('✏️ Routine slot updated successfully!', 'success');
-  };
-
-  // Save Routine to Backend DB
-  const handleSaveRoutineToDB = async (status = 'DRAFT') => {
-    setActionLoading(true);
-    const token = localStorage.getItem('token');
-    const headers = {
-      'Content-Type': 'application/json',
-      ...(token ? { Authorization: `Bearer ${token}` } : {})
+  // Safe fetch helper
+  const safeFetchJson = async (url, options = {}) => {
+    const defaultHeaders = getAuthHeaders();
+    const mergedHeaders = {
+      ...defaultHeaders,
+      ...(options.headers || {})
     };
 
-    const payload = {
-      type: routineMode,
-      title: routineTitle || (routineMode === 'CLASS_ROUTINE' ? 'Department Class Routine' : 'Semester Final Exam Routine'),
-      sessionId: selectedSessionId,
-      semesterId: selectedSemesterId,
-      status,
-      routineData: routineMode === 'CLASS_ROUTINE' 
-        ? { sessions: sessionsInRoutine.length > 0 ? sessionsInRoutine : [{ sessionId: selectedSessionId, sessionName: sessions.find(s => s.id === selectedSessionId)?.session_name, semesterId: selectedSemesterId, courses: configuredCourses }] }
-        : { exams: configuredExams }
-    };
+    const res = await fetch(url, {
+      ...options,
+      headers: mergedHeaders
+    });
 
+    const contentType = res.headers.get('content-type') || '';
+    let data;
+
+    if (contentType.includes('application/json')) {
+      data = await res.json();
+    } else {
+      const text = await res.text();
+      throw new Error(`Server returned status ${res.status}: ${text.slice(0, 120) || res.statusText}`);
+    }
+
+    if (!res.ok) {
+      throw new Error(data?.error || `Request failed with HTTP status ${res.status}`);
+    }
+
+    return data;
+  };
+
+  // =========================================================================
+  // TOP-LEVEL NAVIGATION STATE
+  // =========================================================================
+  // Category tabs: 'CLASS_ROUTINE' | 'LAB_EXAM_ROUTINE' | 'THEORY_EXAM_ROUTINE'
+  const [activeCategory, setActiveCategory] = useState('CLASS_ROUTINE');
+
+  // Class Routine Sub-views: 'DASHBOARD' | 'BUILDER'
+  const [subViewMode, setSubViewMode] = useState('DASHBOARD');
+
+  // Builder Workspace Tabs: 'TIMETABLE_GRID' | 'COURSES'
+  const [workspaceTab, setWorkspaceTab] = useState('TIMETABLE_GRID');
+
+  // =========================================================================
+  // CORE ROUTINE DATA STATE
+  // =========================================================================
+  const [routinesList, setRoutinesList] = useState([]);
+  const [loadingRoutines, setLoadingRoutines] = useState(true);
+
+  // Active / Working Routine
+  const [activeRoutine, setActiveRoutine] = useState(null);
+  const [originalRoutine, setOriginalRoutine] = useState(null); // Snapshot when opened or published
+  const [loadingActiveRoutine, setLoadingActiveRoutine] = useState(false);
+  const [isSavingRoutine, setIsSavingRoutine] = useState(false);
+  const [isPublishing, setIsPublishing] = useState(false);
+
+  // Academic Tree State (Sessions -> Semesters -> Courses & Students Count)
+  const [academicTree, setAcademicTree] = useState([]);
+  const [loadingAcademicTree, setLoadingAcademicTree] = useState(false);
+
+  // Active Selected Semester Tab inside Routine
+  const [selectedSemesterIndex, setSelectedSemesterIndex] = useState(0);
+
+  // Department Faculty Teachers List
+  const [deptTeachers, setDeptTeachers] = useState([]);
+  const [loadingDeptTeachers, setLoadingDeptTeachers] = useState(false);
+
+  // =========================================================================
+  // MODAL STATES
+  // =========================================================================
+  const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
+  const [createForm, setCreateForm] = useState({
+    title: '',
+    academicYear: 'Session 2026-2027',
+    department: 'CSE',
+    effectiveFrom: new Date().toISOString().split('T')[0]
+  });
+  const [creatingRoutine, setCreatingRoutine] = useState(false);
+
+  const [isAddSemesterModalOpen, setIsAddSemesterModalOpen] = useState(false);
+  const [selectedSessionForAdd, setSelectedSessionForAdd] = useState('');
+  const [selectedSemesterIdForAdd, setSelectedSemesterIdForAdd] = useState('');
+  const [addingSemester, setAddingSemester] = useState(false);
+
+  const [isStudentModalOpen, setIsStudentModalOpen] = useState(false);
+  const [studentSearchQuery, setStudentSearchQuery] = useState('');
+
+  const [deleteTargetRoutine, setDeleteTargetRoutine] = useState(null);
+  const [deletingRoutine, setDeletingRoutine] = useState(false);
+
+  // New Smart Modals
+  const [isAutoScheduleModalOpen, setIsAutoScheduleModalOpen] = useState(false);
+  const [isPublishModalOpen, setIsPublishModalOpen] = useState(false);
+  const [isHistoryModalOpen, setIsHistoryModalOpen] = useState(false);
+  const [isCourseFormModalOpen, setIsCourseFormModalOpen] = useState(false);
+  const [editingCourseTarget, setEditingCourseTarget] = useState(null);
+  const [isCopySemesterModalOpen, setIsCopySemesterModalOpen] = useState(false);
+
+  // Teacher Assignment Modal State
+  const [teacherModalState, setTeacherModalState] = useState(null);
+
+  // Workload Modal State
+  const [isWorkloadModalOpen, setIsWorkloadModalOpen] = useState(false);
+
+  // Slot Edit/Add Modal State
+  const [slotModalState, setSlotModalState] = useState(null);
+
+  // Conflict List Modal State
+  const [isConflictListModalOpen, setIsConflictListModalOpen] = useState(false);
+
+  // Unassigned Tray open/closed
+  const [isUnassignedTrayOpen, setIsUnassignedTrayOpen] = useState(true);
+
+  // Drag-and-Drop States
+  const [draggedItem, setDraggedItem] = useState(null);
+  const [dragOverCell, setDragOverCell] = useState(null);
+
+  // Manual Schedule Modal State
+  const [isManualScheduleModalOpen, setIsManualScheduleModalOpen] = useState(false);
+  const [manualScheduleInitialSemId, setManualScheduleInitialSemId] = useState(null);
+  const [manualScheduleInitialCourseId, setManualScheduleInitialCourseId] = useState(null);
+
+  // Feedback Notification Toast
+  const [feedback, setFeedback] = useState(null);
+  const showFeedback = (type, text) => {
+    setFeedback({ type, text });
+    setTimeout(() => setFeedback(null), 5000);
+  };
+
+  // Entire Schedule Conflict List Memo
+  const entireConflicts = useMemo(() => {
+    if (!activeRoutine || !Array.isArray(activeRoutine.schedule)) return [];
+    return validateEntireSchedule(activeRoutine.schedule);
+  }, [activeRoutine?.schedule]);
+
+  // Normalize single course object
+  const normalizeCourse = (c) => {
+    const credit = Number(c.creditHours || c.credit_hours || c.credit) || 3.0;
+    const weekly = Number(c.weeklyHours || c.weekly_hours) || calculateWeeklyHours(c);
+
+    let teacherObj = c.teacher;
+    let status = c.assignmentStatus || 'Pending';
+
+    if (!teacherObj || typeof teacherObj !== 'object') {
+      if (c.teacherId || c.teacher_id) {
+        teacherObj = {
+          type: 'department',
+          teacherId: c.teacherId || c.teacher_id,
+          teacherName: c.teacherName || c.teacher_name || 'Faculty Member',
+          designation: c.teacherDesignation || '',
+          department: c.teacherDepartment || 'CSE',
+          departmentNumber: '',
+          shortCode: c.teacherShortCode || ''
+        };
+        status = 'Assigned';
+      } else {
+        teacherObj = {
+          type: 'none',
+          teacherId: null,
+          teacherName: 'Not Assigned',
+          designation: '',
+          department: 'CSE',
+          departmentNumber: '',
+          shortCode: ''
+        };
+        status = 'Pending';
+      }
+    } else {
+      if (!teacherObj.type) {
+        teacherObj.type = teacherObj.teacherId ? 'department' : (teacherObj.teacherName && teacherObj.teacherName !== 'Not Assigned' ? 'non_department' : 'none');
+      }
+      if (teacherObj.type === 'none' || teacherObj.teacherName === 'Not Assigned') {
+        status = 'Pending';
+      } else if (teacherObj.type === 'department') {
+        status = 'Assigned';
+      } else if (teacherObj.type === 'non_department') {
+        status = 'Non-Department';
+      }
+    }
+
+    return {
+      ...c,
+      id: c.id || c.courseId || 'crs-' + Math.random().toString(36).substring(2, 9),
+      courseId: c.courseId || c.id,
+      courseCode: c.courseCode || c.course_code || '',
+      courseTitle: c.courseTitle || c.course_title || '',
+      creditHours: credit,
+      weeklyHours: weekly,
+      courseType: c.courseType || c.course_type || (c.courseTitle?.toLowerCase().includes('sessional') ? 'Sessional' : 'Theory'),
+      assignmentStatus: status,
+      lifecycle_status: c.lifecycle_status || 'ACTIVE',
+      inRoutine: c.inRoutine !== false,
+      teacher: teacherObj
+    };
+  };
+
+  // =========================================================================
+  // 1. INITIAL LOAD & DATA FETCHING
+  // =========================================================================
+  const fetchDeptTeachers = async () => {
+    setLoadingDeptTeachers(true);
     try {
-      let res;
-      if (savedRoutineId) {
-        res = await fetch(`/api/routines/${savedRoutineId}`, {
-          method: 'PUT',
-          headers,
-          credentials: 'include',
-          body: JSON.stringify(payload)
-        });
-      } else {
-        res = await fetch('/api/routines', {
-          method: 'POST',
-          headers,
-          credentials: 'include',
-          body: JSON.stringify(payload)
-        });
-      }
+      const data = await safeFetchJson('/api/routines/meta/teachers');
+      setDeptTeachers(data.teachers || []);
+    } catch (err) {
+      console.error('Error fetching teachers:', err);
+    } finally {
+      setLoadingDeptTeachers(false);
+    }
+  };
 
-      const data = await res.json();
-      if (res.ok) {
-        if (data.id) setSavedRoutineId(data.id);
-        setRoutineStatus(status);
-        showToast(status === 'PUBLISHED' ? '🎉 Routine published & saved successfully!' : '💾 Routine draft saved successfully to database!', 'success');
-        return data.id || savedRoutineId;
-      } else {
-        showToast(data.error || 'Failed to save routine.', 'error');
+  const fetchAcademicTree = async () => {
+    setLoadingAcademicTree(true);
+    try {
+      const data = await safeFetchJson('/api/routines/meta/academic-tree');
+      const sessions = data.sessions || data.academicTree || [];
+      setAcademicTree(sessions);
+      if (sessions && sessions.length > 0) {
+        setSelectedSessionForAdd(sessions[0].id);
+        const firstSem = sessions[0].semesters?.[0];
+        if (firstSem) setSelectedSemesterIdForAdd(firstSem.id);
       }
     } catch (err) {
-      console.error('Save error:', err);
-      showToast('Error saving routine: ' + err.message, 'error');
+      console.error('Error fetching academic tree:', err);
     } finally {
-      setActionLoading(false);
+      setLoadingAcademicTree(false);
+    }
+  };
+
+  const fetchRoutinesList = async () => {
+    setLoadingRoutines(true);
+    try {
+      const data = await safeFetchJson('/api/routines');
+      setRoutinesList(data.routines || []);
+      return data.routines || [];
+    } catch (err) {
+      console.error('Error fetching routines:', err);
+      showFeedback('error', 'Failed to load routines: ' + err.message);
+      return [];
+    } finally {
+      setLoadingRoutines(false);
+    }
+  };
+
+  const fetchActiveRoutine = async () => {
+    setLoadingActiveRoutine(true);
+    try {
+      const res = await safeFetchJson('/api/routines/active');
+      if (res?.routine) {
+        const r = res.routine;
+        const parsedData = r.routineData || {};
+        const rawSemesters = Array.isArray(parsedData.semesters) ? parsedData.semesters : [];
+        const normalizedSemesters = rawSemesters.map(sem => ({
+          ...sem,
+          courses: (sem.courses || []).map(normalizeCourse)
+        }));
+        const rawSchedule = Array.isArray(parsedData.schedule) ? parsedData.schedule : [];
+        const normalizedSchedule = rawSchedule.map(normalizeSlot);
+
+        const loadedRoutine = {
+          id: r.id,
+          title: r.title,
+          department: r.department || 'CSE',
+          academicYear: r.academicYear || '',
+          effectiveFrom: r.effectiveFrom || '',
+          status: r.status || 'DRAFT',
+          version_number: r.version_number || 1,
+          is_active: r.is_active || 0,
+          semesters: normalizedSemesters,
+          schedule: normalizedSchedule,
+          rawRoutineData: parsedData
+        };
+        setActiveRoutine(loadedRoutine);
+        setOriginalRoutine(JSON.parse(JSON.stringify(loadedRoutine)));
+        return loadedRoutine;
+      }
+    } catch (err) {
+      console.warn('No active routine returned from /api/routines/active:', err);
+    } finally {
+      setLoadingActiveRoutine(false);
     }
     return null;
   };
 
-  // Publish Directly to Notice Board (Click to Publish)
-  const handlePublishToNoticeBoard = async () => {
-    setActionLoading(true);
-    try {
-      // First ensure routine is saved in DB
-      let routineId = savedRoutineId;
-      if (!routineId) {
-        routineId = await handleSaveRoutineToDB('PUBLISHED');
+  useEffect(() => {
+    const init = async () => {
+      await fetchDeptTeachers();
+      await fetchAcademicTree();
+      const active = await fetchActiveRoutine();
+      const list = await fetchRoutinesList();
+      if (!active && list && list.length > 0) {
+        // Automatically open the latest routine if no routine was explicitly flagged active
+        await handleOpenRoutine(list[0].id);
       }
+    };
+    init();
+  }, []);
 
-      if (!routineId) return;
+  // Open Routine by ID
+  const handleOpenRoutine = async (routineId) => {
+    setLoadingActiveRoutine(true);
+    try {
+      const data = await safeFetchJson(`/api/routines/${routineId}`);
+      const r = data.routine;
+      
+      const parsedData = r.routineData || {};
+      const rawSemesters = Array.isArray(parsedData.semesters) ? parsedData.semesters : [];
+      const normalizedSemesters = rawSemesters.map(sem => ({
+        ...sem,
+        courses: (sem.courses || []).map(normalizeCourse)
+      }));
 
-      const token = localStorage.getItem('token');
-      const headers = {
-        'Content-Type': 'application/json',
-        ...(token ? { Authorization: `Bearer ${token}` } : {})
+      const rawSchedule = Array.isArray(parsedData.schedule) ? parsedData.schedule : [];
+      const normalizedSchedule = rawSchedule.map(normalizeSlot);
+
+      const mergedRoutine = {
+        id: r.id,
+        title: r.title,
+        department: r.department || 'CSE',
+        academicYear: r.academicYear || '',
+        effectiveFrom: r.effectiveFrom || '',
+        status: r.status || 'DRAFT',
+        version_number: r.version_number || 1,
+        is_active: r.is_active || 0,
+        semesters: normalizedSemesters,
+        schedule: normalizedSchedule,
+        rawRoutineData: parsedData
       };
 
-      const res = await fetch(`/api/routines/${routineId}/publish`, {
+      setActiveRoutine(mergedRoutine);
+      setOriginalRoutine(JSON.parse(JSON.stringify(mergedRoutine)));
+      setSelectedSemesterIndex(0);
+      showFeedback('success', `Loaded "${mergedRoutine.title}"`);
+    } catch (err) {
+      console.error('Error opening routine:', err);
+      showFeedback('error', 'Failed to open routine: ' + err.message);
+    } finally {
+      setLoadingActiveRoutine(false);
+    }
+  };
+
+  // =========================================================================
+  // 2. CREATE NEW ROUTINE
+  // =========================================================================
+  const handleCreateRoutineSubmit = async (e) => {
+    e.preventDefault();
+    if (!createForm.title.trim()) {
+      showFeedback('error', 'Please provide a routine title.');
+      return;
+    }
+
+    setCreatingRoutine(true);
+    try {
+      const payload = {
+        title: createForm.title.trim(),
+        department: createForm.department || 'CSE',
+        academicYear: createForm.academicYear,
+        effectiveFrom: createForm.effectiveFrom,
+        status: 'DRAFT',
+        routineData: {
+          routineName: createForm.title.trim(),
+          department: createForm.department || 'CSE',
+          academicYear: createForm.academicYear,
+          effectiveFrom: createForm.effectiveFrom,
+          semesters: [],
+          schedule: []
+        }
+      };
+
+      const res = await safeFetchJson('/api/routines', {
         method: 'POST',
-        headers,
-        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+
+      showFeedback('success', 'Routine created successfully!');
+      setIsCreateModalOpen(false);
+      
+      setCreateForm({
+        title: '',
+        academicYear: academicTree[0]?.sessionName || 'Session 2026-2027',
+        department: 'CSE',
+        effectiveFrom: new Date().toISOString().split('T')[0]
+      });
+
+      await fetchRoutinesList();
+      if (res.id) {
+        await handleOpenRoutine(res.id);
+        setSubViewMode('BUILDER');
+      }
+    } catch (err) {
+      console.error('Error creating routine:', err);
+      showFeedback('error', 'Failed to create routine: ' + err.message);
+    } finally {
+      setCreatingRoutine(false);
+    }
+  };
+
+  // =========================================================================
+  // 3. SEMESTER MANAGEMENT (ADD, REMOVE, COPY)
+  // =========================================================================
+  const handleOpenAddSemesterModal = () => {
+    if (academicTree && academicTree.length > 0) {
+      const sess = academicTree.find(s => s.id === selectedSessionForAdd) || academicTree[0];
+      setSelectedSessionForAdd(sess.id);
+      if (sess.semesters && sess.semesters.length > 0) {
+        const existingIds = new Set((activeRoutine?.semesters || []).map(s => s.semesterId || s.id));
+        const available = sess.semesters.find(s => !existingIds.has(s.id));
+        setSelectedSemesterIdForAdd(available ? available.id : sess.semesters[0].id);
+      }
+    }
+    setIsAddSemesterModalOpen(true);
+  };
+
+  const handleAddSemesterSubmit = async (e) => {
+    e.preventDefault();
+    if (!selectedSemesterIdForAdd || !activeRoutine) {
+      showFeedback('error', 'Please select a semester.');
+      return;
+    }
+
+    const alreadyExists = (activeRoutine.semesters || []).some(s => (s.semesterId || s.id) === selectedSemesterIdForAdd);
+    if (alreadyExists) {
+      showFeedback('info', 'This semester is already in the routine. Switched to it.');
+      const existingIdx = activeRoutine.semesters.findIndex(s => (s.semesterId || s.id) === selectedSemesterIdForAdd);
+      if (existingIdx >= 0) setSelectedSemesterIndex(existingIdx);
+      setIsAddSemesterModalOpen(false);
+      return;
+    }
+
+    setAddingSemester(true);
+    try {
+      const detail = await safeFetchJson(`/api/routines/meta/semester/${selectedSemesterIdForAdd}`);
+      
+      const newSemesterEntry = {
+        semesterId: detail.semester.id,
+        semesterName: detail.semester.semesterName,
+        termCode: detail.semester.termCode,
+        shortTerm: detail.semester.shortTerm,
+        sessionId: detail.semester.sessionId,
+        sessionName: detail.semester.sessionName,
+        totalStudents: detail.totalStudents || 0,
+        excludedStudentIds: [],
+        studentsRoster: detail.students || [],
+        courses: (detail.courses || []).map(normalizeCourse)
+      };
+
+      const updatedSemesters = [...(activeRoutine.semesters || []), newSemesterEntry];
+      setActiveRoutine(prev => ({
+        ...prev,
+        semesters: updatedSemesters
+      }));
+
+      setSelectedSemesterIndex(updatedSemesters.length - 1);
+      setIsAddSemesterModalOpen(false);
+      showFeedback('success', `Added ${detail.semester.semesterName} with ${detail.courses?.length || 0} courses!`);
+    } catch (err) {
+      console.error('Error adding semester:', err);
+      showFeedback('error', 'Failed to add semester: ' + err.message);
+    } finally {
+      setAddingSemester(false);
+    }
+  };
+
+  const handleRemoveSemester = (indexToRemove) => {
+    if (!activeRoutine) return;
+    const semToRemove = activeRoutine.semesters[indexToRemove];
+    if (!window.confirm(`Are you sure you want to remove "${semToRemove.semesterName}" from this routine?`)) {
+      return;
+    }
+
+    const updated = activeRoutine.semesters.filter((_, idx) => idx !== indexToRemove);
+    // Also remove timetable slots for this semester
+    const updatedSchedule = (activeRoutine.schedule || []).filter(s => s.semesterId !== semToRemove.semesterId);
+
+    setActiveRoutine(prev => ({
+      ...prev,
+      semesters: updated,
+      schedule: updatedSchedule
+    }));
+
+    if (selectedSemesterIndex >= updated.length) {
+      setSelectedSemesterIndex(Math.max(0, updated.length - 1));
+    }
+    showFeedback('success', `Removed semester from routine.`);
+  };
+
+  // Copy Semester Configuration
+  const handleConfirmCopySemester = async ({ sourceSemesterId, sourceSemesterName, includeTeachers, includeTimetable }) => {
+    if (!activeRoutine) return;
+    const currentSem = activeRoutine.semesters[selectedSemesterIndex];
+    if (!currentSem) return;
+
+    const sourceSem = activeRoutine.semesters.find(s => s.semesterId === sourceSemesterId);
+    if (!sourceSem || !sourceSem.courses) {
+      showFeedback('error', 'Source semester has no courses.');
+      return;
+    }
+
+    const clonedCourses = sourceSem.courses.map(c => ({
+      ...c,
+      id: 'crs-' + Math.random().toString(36).substring(2, 9),
+      courseId: 'crs-' + Math.random().toString(36).substring(2, 9),
+      teacher: includeTeachers ? c.teacher : {
+        type: 'none',
+        teacherId: null,
+        teacherName: 'Not Assigned',
+        designation: '',
+        department: 'CSE',
+        departmentNumber: '',
+        shortCode: ''
+      },
+      assignmentStatus: includeTeachers ? c.assignmentStatus : 'Pending',
+      lifecycle_status: 'ACTIVE',
+      inRoutine: true
+    }));
+
+    let updatedSchedule = activeRoutine.schedule || [];
+    if (includeTimetable) {
+      const sourceSlots = updatedSchedule.filter(s => s.semesterId === sourceSemesterId);
+      const newSlots = sourceSlots.map(s => {
+        const matchCourse = clonedCourses.find(nc => nc.courseCode === s.courseCode) || clonedCourses[0];
+        return {
+          ...s,
+          id: 'slot-' + Math.random().toString(36).substring(2, 9),
+          semesterId: currentSem.semesterId,
+          semesterName: currentSem.semesterName,
+          termCode: currentSem.shortTerm || currentSem.termCode,
+          courseId: matchCourse ? (matchCourse.courseId || matchCourse.id) : s.courseId,
+          isLocked: false
+        };
+      });
+      updatedSchedule = [...updatedSchedule, ...newSlots];
+    }
+
+    const updatedSemesters = activeRoutine.semesters.map((sem, sIdx) => {
+      if (sIdx !== selectedSemesterIndex) return sem;
+      return {
+        ...sem,
+        courses: [...(sem.courses || []), ...clonedCourses]
+      };
+    });
+
+    setActiveRoutine(prev => ({
+      ...prev,
+      semesters: updatedSemesters,
+      schedule: updatedSchedule
+    }));
+
+    setIsCopySemesterModalOpen(false);
+    showFeedback('success', `Copied ${clonedCourses.length} courses from ${sourceSemesterName} into ${currentSem.semesterName}!`);
+  };
+
+  // =========================================================================
+  // 4. COURSE MANAGEMENT (ADD, EDIT, STATUS, ARCHIVE, INCLUSION)
+  // =========================================================================
+  const handleOpenAddCourseModal = () => {
+    setEditingCourseTarget(null);
+    setIsCourseFormModalOpen(true);
+  };
+
+  const handleOpenEditCourseModal = (...args) => {
+    let course = null;
+    if (args.length >= 3 && typeof args[2] === 'object' && args[2] !== null) {
+      course = args[2];
+    } else if (typeof args[0] === 'object' && args[0] !== null) {
+      course = args[0];
+    } else if (typeof args[1] === 'object' && args[1] !== null) {
+      course = args[1];
+    }
+    if (!course && typeof args[0] === 'number') {
+      const sem = activeRoutine?.semesters?.[selectedSemesterIndex];
+      course = sem?.courses?.[args[0]];
+    }
+    if (course) {
+      setEditingCourseTarget(course);
+      setIsCourseFormModalOpen(true);
+    }
+  };
+
+  const handleSaveCourse = (savedCourse) => {
+    if (!activeRoutine) return;
+    const currentSem = activeRoutine.semesters[selectedSemesterIndex];
+    if (!currentSem) return;
+
+    let updatedCourses;
+    const exists = (currentSem.courses || []).some(c => (c.courseId || c.id) === (savedCourse.courseId || savedCourse.id));
+    if (exists) {
+      updatedCourses = currentSem.courses.map(c => 
+        (c.courseId || c.id) === (savedCourse.courseId || savedCourse.id) ? { ...c, ...savedCourse } : c
+      );
+    } else {
+      updatedCourses = [...(currentSem.courses || []), savedCourse];
+    }
+
+    const updatedSemesters = activeRoutine.semesters.map((sem, sIdx) => {
+      if (sIdx !== selectedSemesterIndex) return sem;
+      return { ...sem, courses: updatedCourses };
+    });
+
+    setActiveRoutine(prev => ({
+      ...prev,
+      semesters: updatedSemesters
+    }));
+
+    showFeedback('success', `${exists ? 'Updated' : 'Added'} course ${savedCourse.courseCode} (${savedCourse.creditHours} cr)`);
+  };
+
+  const handleDeleteCourse = (...args) => {
+    if (!activeRoutine) return;
+    let sIdx = selectedSemesterIndex;
+    let cIdx = 0;
+    if (args.length >= 2 && typeof args[1] === 'number') {
+      sIdx = args[1];
+      cIdx = args[0];
+    } else if (typeof args[0] === 'number') {
+      cIdx = args[0];
+    }
+    const currentSem = activeRoutine.semesters[sIdx];
+    if (!currentSem) return;
+    const targetCourse = currentSem.courses[cIdx];
+    if (!targetCourse) return;
+
+    if (!window.confirm(`Are you sure you want to remove ${targetCourse.courseCode}? You can archive it instead to keep historical records.`)) {
+      return;
+    }
+
+    const updatedCourses = currentSem.courses.filter((_, idx) => idx !== cIdx);
+    const updatedSemesters = activeRoutine.semesters.map((sem, idx) => {
+      if (idx !== sIdx) return sem;
+      return { ...sem, courses: updatedCourses };
+    });
+
+    const updatedSchedule = (activeRoutine.schedule || []).filter(s => s.courseId !== (targetCourse.courseId || targetCourse.id));
+
+    setActiveRoutine(prev => ({
+      ...prev,
+      semesters: updatedSemesters,
+      schedule: updatedSchedule
+    }));
+
+    showFeedback('success', `Removed course ${targetCourse.courseCode} from semester.`);
+  };
+
+  const handleToggleCourseStatus = async (...args) => {
+    if (!activeRoutine) return;
+    let sIdx = selectedSemesterIndex;
+    let cIdx = 0;
+    let newStatus = 'ACTIVE';
+
+    if (args.length >= 3) {
+      cIdx = args[0];
+      newStatus = args[1];
+      sIdx = args[2] ?? selectedSemesterIndex;
+    } else if (args.length === 2) {
+      cIdx = args[0];
+      newStatus = args[1];
+    }
+
+    const currentSem = activeRoutine.semesters[sIdx];
+    if (!currentSem) return;
+    const targetCourse = currentSem.courses[cIdx];
+    if (!targetCourse) return;
+
+    const updatedCourses = currentSem.courses.map((c, idx) => 
+      idx === cIdx ? { ...c, lifecycle_status: newStatus, status: newStatus } : c
+    );
+
+    const updatedSemesters = activeRoutine.semesters.map((sem, idx) => {
+      if (idx !== sIdx) return sem;
+      return { ...sem, courses: updatedCourses };
+    });
+
+    setActiveRoutine(prev => ({ ...prev, semesters: updatedSemesters }));
+
+    // Sync to backend status endpoint
+    try {
+      await safeFetchJson(`/api/routines/courses/${targetCourse.courseId || targetCourse.id}/status`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          customNote: `Official ${routineMode === 'CLASS_ROUTINE' ? 'Class' : 'Exam'} routine issued by the Academic Routine Committee for verified students and faculty.`
+          status: newStatus,
+          routineId: activeRoutine.id,
+          semesterId: currentSem.semesterId
+        })
+      });
+      showFeedback('success', `Marked ${targetCourse.courseCode} as ${newStatus}.`);
+    } catch (err) {
+      console.error('Status update error:', err);
+    }
+  };
+
+  const handleToggleCourseInRoutine = (...args) => {
+    if (!activeRoutine) return;
+    let sIdx = selectedSemesterIndex;
+    let cIdx = 0;
+    let isIncluded = null;
+
+    if (args.length >= 3) {
+      cIdx = args[0];
+      isIncluded = args[1];
+      sIdx = args[2] ?? selectedSemesterIndex;
+    } else if (args.length === 2 && typeof args[1] === 'boolean') {
+      cIdx = args[0];
+      isIncluded = args[1];
+    } else if (args.length >= 1 && typeof args[0] === 'number') {
+      cIdx = args[0];
+    }
+
+    const currentSem = activeRoutine.semesters[sIdx];
+    if (!currentSem) return;
+
+    const updatedCourses = currentSem.courses.map((c, idx) => {
+      if (idx !== cIdx) return c;
+      const nextVal = isIncluded !== null ? Boolean(isIncluded) : !(c.isIncluded !== false && c.inRoutine !== false);
+      return { ...c, inRoutine: nextVal, isIncluded: nextVal };
+    });
+
+    const updatedSemesters = activeRoutine.semesters.map((sem, idx) => {
+      if (idx !== sIdx) return sem;
+      return { ...sem, courses: updatedCourses };
+    });
+
+    setActiveRoutine(prev => ({ ...prev, semesters: updatedSemesters }));
+  };
+
+  // =========================================================================
+  // 5. TEACHER ASSIGNMENT & PROFILE SYNCHRONIZATION
+  // =========================================================================
+  const handleOpenTeacherModal = (semesterIndex, courseIndex, course) => {
+    setTeacherModalState({
+      semesterIndex,
+      courseIndex,
+      course,
+      initialTeacher: course?.teacher
+    });
+  };
+
+  const handleSaveTeacherAssignment = async (payload) => {
+    if (!teacherModalState || !activeRoutine) return;
+    const { semesterIndex, courseIndex } = teacherModalState;
+
+    const course = payload?.course || teacherModalState.course;
+    const teacher = payload?.teacher || payload;
+    const mode = payload?.mode || (teacher.type === 'non_department' ? 'non_department' : 'department');
+    if (!course || !teacher) return;
+
+    const updatedSemesters = activeRoutine.semesters.map((sem, sIdx) => {
+      if (sIdx !== semesterIndex) return sem;
+      const updatedCourses = (sem.courses || []).map((c, cIdx) => {
+        if (cIdx !== courseIndex) return c;
+        return {
+          ...c,
+          teacher: teacher,
+          assignmentStatus: mode === 'department' ? 'Assigned' : 'Non-Department'
+        };
+      });
+      return { ...sem, courses: updatedCourses };
+    });
+
+    // Also update any already placed slots for this course on the timetable
+    const updatedSchedule = (activeRoutine.schedule || []).map(s => {
+      if (s.courseId === (course.courseId || course.id)) {
+        return {
+          ...s,
+          teacherId: teacher.teacherId,
+          teacherName: teacher.teacherName,
+          teacherShortCode: teacher.shortCode || teacher.teacherName,
+          teacherType: teacher.type
+        };
+      }
+      return s;
+    });
+
+    setActiveRoutine(prev => ({
+      ...prev,
+      semesters: updatedSemesters,
+      schedule: updatedSchedule
+    }));
+
+    // Persist immediately to backend teacher sync endpoint
+    try {
+      const currentSem = activeRoutine.semesters[semesterIndex];
+      await safeFetchJson('/api/routines/sync-teachers', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          routineId: activeRoutine.id,
+          assignments: [{
+            courseId: course.courseId || course.id,
+            courseCode: course.courseCode,
+            courseTitle: course.courseTitle,
+            creditHours: course.creditHours,
+            teacherId: teacher.teacherId,
+            teacherName: teacher.teacherName,
+            teacherType: teacher.type,
+            department: teacher.department,
+            departmentNumber: teacher.departmentNumber,
+            academicSession: activeRoutine.academicYear,
+            semesterName: currentSem?.semesterName
+          }]
+        })
+      });
+    } catch (err) {
+      console.error('Error synchronizing teacher assignment:', err);
+    }
+
+    setTeacherModalState(null);
+    showFeedback('success', `Assigned ${teacher.teacherName} to ${course.courseCode} & synchronized profile!`);
+  };
+
+  // =========================================================================
+  // 6. TIMETABLE MANAGEMENT, LOCKS, CONFLICTS & AUTO-GENERATE
+  // =========================================================================
+  const handleToggleLockSlot = (slotId) => {
+    if (!activeRoutine) return;
+    let slotName = 'slot';
+    let isNowLocked = false;
+
+    setActiveRoutine(prev => {
+      const updated = (prev.schedule || []).map(s => {
+        if (s.id === slotId) {
+          slotName = s.courseCode;
+          isNowLocked = !s.isLocked;
+          return { ...s, isLocked: !s.isLocked };
+        }
+        return s;
+      });
+      return { ...prev, schedule: updated };
+    });
+
+    showFeedback('info', `${isNowLocked ? '🔒 Locked' : '🔓 Unlocked'} ${slotName}. ${isNowLocked ? 'Auto-schedule will preserve this slot.' : ''}`);
+  };
+
+  const handleApplyAutoSchedule = (generatedSlots) => {
+    if (!activeRoutine) return;
+    // Keep locked slots that weren't generated
+    const lockedSlots = (activeRoutine.schedule || []).filter(s => s.isLocked);
+    const nonConflictingLocked = lockedSlots.filter(ls => !generatedSlots.some(gs => gs.id === ls.id));
+    const combinedSchedule = [...generatedSlots, ...nonConflictingLocked];
+
+    setActiveRoutine(prev => ({
+      ...prev,
+      schedule: combinedSchedule
+    }));
+
+    setIsAutoScheduleModalOpen(false);
+    setWorkspaceTab('TIMETABLE_GRID');
+    showFeedback('success', `Generated ${generatedSlots.length} timetable periods conflict-free!`);
+  };
+
+  const handleOpenAddSlotModal = (dayId = 'Saturday', semesterId = null, startPeriodId = 'p1') => {
+    if (!activeRoutine || activeRoutine.semesters.length === 0) {
+      showFeedback('error', 'Please add at least one semester before scheduling timetable slots.');
+      return;
+    }
+
+    const semId = semesterId || activeRoutine.semesters[0]?.semesterId;
+    const currentSem = activeRoutine.semesters.find(s => s.semesterId === semId) || activeRoutine.semesters[0];
+    const firstCourse = currentSem?.courses?.[0];
+
+    const teacher = firstCourse?.teacher;
+    const isDept = teacher?.type === 'department';
+    const isSessional = firstCourse?.courseType === 'Sessional' || firstCourse?.courseTitle?.toLowerCase().includes('sessional');
+    const defaultPeriodId = startPeriodId === BREAK_PERIOD_ID ? 'p1' : startPeriodId;
+
+    setSlotModalState({
+      isOpen: true,
+      mode: 'CREATE',
+      day: dayId,
+      semesterId: currentSem?.semesterId,
+      courseId: firstCourse?.courseId || firstCourse?.id || '',
+      teacherId: isDept ? teacher?.teacherId : null,
+      teacherName: teacher?.teacherName || 'Not Assigned',
+      teacherShortCode: teacher?.shortCode || '',
+      teacherType: teacher?.type || 'department',
+      room: isSessional ? 'ACL' : '501',
+      startPeriodId: defaultPeriodId,
+      span: isSessional ? 3 : 1
+    });
+  };
+
+  const handleOpenEditSlotModal = (slot) => {
+    setSlotModalState({
+      isOpen: true,
+      mode: 'EDIT',
+      editingSlotId: slot.id,
+      day: slot.day,
+      semesterId: slot.semesterId,
+      courseId: slot.courseId,
+      teacherId: slot.teacherId,
+      teacherName: slot.teacherName,
+      teacherShortCode: slot.teacherShortCode,
+      teacherType: slot.teacherType || 'department',
+      room: slot.room,
+      startPeriodId: slot.periodId,
+      span: slot.span || 1,
+      isLocked: Boolean(slot.isLocked)
+    });
+  };
+
+  const handleSlotSemesterChange = (newSemesterId) => {
+    if (!activeRoutine) return;
+    const currentSem = activeRoutine.semesters.find(s => s.semesterId === newSemesterId);
+    const firstCourse = currentSem?.courses?.[0];
+    const isSessional = firstCourse?.courseType === 'Sessional' || firstCourse?.courseTitle?.toLowerCase().includes('sessional');
+    const t = firstCourse?.teacher;
+    const isDept = t?.type === 'department';
+    setSlotModalState(prev => ({
+      ...prev,
+      semesterId: newSemesterId,
+      courseId: firstCourse?.courseId || firstCourse?.id || '',
+      teacherId: isDept ? t?.teacherId : null,
+      teacherName: t?.teacherName || 'Not Assigned',
+      teacherShortCode: t?.shortCode || '',
+      teacherType: t?.type || 'department',
+      room: isSessional ? 'ACL' : '501',
+      span: isSessional ? 3 : 1
+    }));
+  };
+
+  const handleSlotCourseChange = (selectedCourseId) => {
+    if (!activeRoutine || !slotModalState) return;
+    const currentSem = activeRoutine.semesters.find(s => s.semesterId === slotModalState.semesterId);
+    const selectedCourse = currentSem?.courses?.find(c => (c.courseId || c.id) === selectedCourseId);
+    if (!selectedCourse) return;
+    const isSessional = selectedCourse.courseType === 'Sessional' || selectedCourse.courseTitle?.toLowerCase().includes('sessional');
+    const t = selectedCourse.teacher;
+    const isDept = t?.type === 'department';
+    setSlotModalState(prev => ({
+      ...prev,
+      courseId: selectedCourseId,
+      teacherId: isDept ? t?.teacherId : null,
+      teacherName: t?.teacherName || 'Not Assigned',
+      teacherShortCode: t?.shortCode || '',
+      teacherType: t?.type || 'department',
+      room: isSessional ? 'ACL' : (prev.room || '501'),
+      span: isSessional ? 3 : (prev.span === 3 ? 1 : prev.span)
+    }));
+  };
+
+  const candidateConflict = useMemo(() => {
+    if (!slotModalState || !slotModalState.isOpen || !activeRoutine) return null;
+    const candidate = {
+      id: slotModalState.editingSlotId || 'candidate',
+      day: slotModalState.day,
+      periodId: slotModalState.startPeriodId,
+      span: slotModalState.span,
+      semesterId: slotModalState.semesterId,
+      courseId: slotModalState.courseId,
+      teacherId: slotModalState.teacherId,
+      teacherName: slotModalState.teacherName,
+      room: slotModalState.room
+    };
+    return checkSlotConflict(candidate, activeRoutine.schedule || [], slotModalState.editingSlotId);
+  }, [slotModalState, activeRoutine?.schedule]);
+
+  const handleSaveSlot = () => {
+    if (!slotModalState || !activeRoutine) return;
+    if (!slotModalState.courseId) {
+      showFeedback('error', 'Please select a course.');
+      return;
+    }
+
+    if (candidateConflict && candidateConflict.hasConflict) {
+      showFeedback('error', candidateConflict.message);
+      return;
+    }
+
+    const currentSem = activeRoutine.semesters.find(s => s.semesterId === slotModalState.semesterId);
+    const currentCourse = currentSem?.courses?.find(c => (c.courseId || c.id) === slotModalState.courseId);
+
+    const newSlot = normalizeSlot({
+      id: slotModalState.editingSlotId || 'slot-' + Math.random().toString(36).substring(2, 9),
+      day: slotModalState.day,
+      periodId: slotModalState.startPeriodId,
+      span: slotModalState.span,
+      semesterId: slotModalState.semesterId,
+      semesterName: currentSem?.semesterName || '',
+      termCode: currentSem?.shortTerm || currentSem?.termCode || '',
+      courseId: slotModalState.courseId,
+      courseCode: currentCourse?.courseCode || '',
+      courseTitle: currentCourse?.courseTitle || '',
+      creditHours: currentCourse?.creditHours || 3.0,
+      courseType: currentCourse?.courseType || 'Theory',
+      teacherId: slotModalState.teacherId,
+      teacherName: slotModalState.teacherName,
+      teacherShortCode: slotModalState.teacherShortCode,
+      teacherType: slotModalState.teacherType,
+      room: slotModalState.room || '501',
+      isLocked: Boolean(slotModalState.isLocked)
+    });
+
+    let updatedSchedule;
+    if (slotModalState.mode === 'EDIT') {
+      updatedSchedule = (activeRoutine.schedule || []).map(s => s.id === slotModalState.editingSlotId ? newSlot : s);
+    } else {
+      updatedSchedule = [...(activeRoutine.schedule || []), newSlot];
+    }
+
+    setActiveRoutine(prev => ({
+      ...prev,
+      schedule: updatedSchedule
+    }));
+
+    setSlotModalState(null);
+    showFeedback('success', `Scheduled ${newSlot.courseCode} on ${newSlot.day} (${getSlotTimeRangeLabel(newSlot.periodId, newSlot.span)})`);
+  };
+
+  const handleDeleteSlot = (slotId) => {
+    if (!activeRoutine) return;
+    const updatedSchedule = (activeRoutine.schedule || []).filter(s => s.id !== slotId);
+    setActiveRoutine(prev => ({
+      ...prev,
+      schedule: updatedSchedule
+    }));
+    showFeedback('success', 'Removed class slot from routine.');
+  };
+
+  const handleClearSchedule = () => {
+    if (!activeRoutine) return;
+    if (!window.confirm('Are you sure you want to clear all scheduled timetable periods in this routine?')) return;
+    setActiveRoutine(prev => ({
+      ...prev,
+      schedule: []
+    }));
+    showFeedback('success', 'Cleared all timetable slots.');
+  };
+
+  // =========================================================================
+  // DRAG-AND-DROP & MANUAL SCHEDULING HANDLERS
+  // =========================================================================
+  const handleOpenManualScheduleModal = (semId = null, courseId = null) => {
+    setManualScheduleInitialSemId(semId || activeRoutine?.semesters?.[selectedSemesterIndex]?.semesterId || null);
+    setManualScheduleInitialCourseId(courseId || null);
+    setIsManualScheduleModalOpen(true);
+  };
+
+  const handleSaveManualSlot = (newSlot) => {
+    if (!activeRoutine) return;
+    const currentSchedule = activeRoutine.schedule || [];
+    
+    // Check if slot with same day, semesterId, periodId already exists
+    const existingIdx = currentSchedule.findIndex(s => 
+      s.day === newSlot.day && 
+      s.semesterId === newSlot.semesterId && 
+      s.periodId === newSlot.periodId
+    );
+
+    let updatedSchedule;
+    if (existingIdx >= 0) {
+      updatedSchedule = currentSchedule.map((s, idx) => idx === existingIdx ? newSlot : s);
+    } else {
+      updatedSchedule = [...currentSchedule, newSlot];
+    }
+
+    setActiveRoutine(prev => ({
+      ...prev,
+      schedule: updatedSchedule
+    }));
+    showFeedback('success', `Scheduled ${newSlot.courseCode} on ${newSlot.day} (${newSlot.periodId.toUpperCase()})`);
+  };
+
+  const handleCourseDragStart = (e, course, semester, preferredRoom = null) => {
+    const isLab = course.courseType === 'Sessional' || (course.courseTitle && course.courseTitle.toLowerCase().includes('lab'));
+    const defaultRoom = preferredRoom || (isLab ? 'ACL' : '501');
+    const payload = {
+      type: 'NEW_COURSE',
+      courseId: course.courseId || course.id,
+      courseCode: course.courseCode,
+      courseTitle: course.courseTitle,
+      creditHours: course.creditHours,
+      courseType: course.courseType,
+      weeklyHours: course.weeklyHours,
+      teacher: course.teacher,
+      teacherId: course.teacher?.teacherId || null,
+      teacherName: course.teacher?.teacherName || 'Not Assigned',
+      teacherShortCode: course.teacher?.shortCode || course.teacher?.teacherName || '',
+      teacherType: course.teacher?.type || 'department',
+      sourceSemesterId: semester.semesterId,
+      termCode: semester.shortTerm || semester.termCode,
+      semesterName: semester.semesterName,
+      room: defaultRoom
+    };
+    try {
+      e.dataTransfer.setData('text/plain', JSON.stringify(payload));
+      e.dataTransfer.effectAllowed = 'copyMove';
+    } catch (err) {
+      // fallback
+    }
+    setDraggedItem(payload);
+  };
+
+  const handleSlotDragStart = (e, slot) => {
+    if (slot.isLocked) return;
+    const payload = {
+      type: 'MOVE_SLOT',
+      slot
+    };
+    try {
+      e.dataTransfer.setData('text/plain', JSON.stringify(payload));
+      e.dataTransfer.effectAllowed = 'copyMove';
+    } catch (err) {
+      // fallback
+    }
+    setDraggedItem(payload);
+  };
+
+  const handleCellDrop = (e, targetDay, targetSemesterId, targetPeriodId) => {
+    e.preventDefault();
+    setDragOverCell(null);
+
+    let data = draggedItem;
+    try {
+      const raw = e.dataTransfer.getData('text/plain');
+      if (raw) {
+        data = JSON.parse(raw);
+      }
+    } catch (err) {
+      // fallback
+    }
+
+    if (!data || !activeRoutine) return;
+
+    const currentSchedule = activeRoutine.schedule || [];
+    const targetSem = (activeRoutine.semesters || []).find(s => s.semesterId === targetSemesterId);
+    if (!targetSem) return;
+
+    if (data.type === 'NEW_COURSE') {
+      const isLab = data.courseType === 'Sessional' || (data.courseTitle && data.courseTitle.toLowerCase().includes('lab'));
+      const span = isLab ? 3 : 1;
+      const preferredRoom = data.room || null;
+
+      // Validate span does not exceed daily schedule or cross protected break
+      const covered = getCoveredPeriodIds(targetPeriodId, span);
+      if (!covered) {
+        showFeedback('error', `Cannot place ${data.courseCode}: Class cannot cross protected 1:00-2:00 PM Break or exceed daily periods.`);
+        setDraggedItem(null);
+        return;
+      }
+
+      // Automatically allocate available conflict-free room
+      const assignedRoom = getAvailableRoom(targetDay, targetPeriodId, span, isLab, currentSchedule, preferredRoom);
+
+      // Candidate slot
+      const candidate = normalizeSlot({
+        id: `slot-drag-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`,
+        semesterId: targetSemesterId,
+        termCode: targetSem.shortTerm || targetSem.termCode || 'Sem',
+        semesterName: targetSem.semesterName || 'Semester',
+        courseId: data.courseId,
+        courseCode: data.courseCode,
+        courseTitle: data.courseTitle,
+        creditHours: data.creditHours || 3.0,
+        courseType: data.courseType || 'Theory',
+        teacherId: data.teacherId || null,
+        teacherName: data.teacherName || 'Not Assigned',
+        teacherShortCode: data.teacherShortCode || '',
+        teacherType: data.teacherType || 'department',
+        day: targetDay,
+        periodId: targetPeriodId,
+        span: span,
+        room: assignedRoom,
+        isLocked: false
+      });
+
+      // Check conflict
+      const conflict = checkSlotConflict(candidate, currentSchedule, currentSchedule);
+      if (conflict && conflict.hasConflict) {
+        showFeedback('error', `Conflict: ${conflict.message}`);
+        setDraggedItem(null);
+        return;
+      }
+
+      // Check weekly hours progress
+      const existingCourseSlots = currentSchedule.filter(s => s.courseId === data.courseId && s.semesterId === targetSemesterId);
+      const scheduledHours = existingCourseSlots.reduce((acc, s) => acc + (Number(s.span) || 1), 0);
+      const requiredHours = Number(data.weeklyHours) || calculateWeeklyHours(data);
+
+      if (scheduledHours >= requiredHours) {
+        const confirmExtra = window.confirm(`Course ${data.courseCode} already has ${scheduledHours}/${requiredHours} weekly hours scheduled. Do you want to schedule an extra slot?`);
+        if (!confirmExtra) {
+          setDraggedItem(null);
+          return;
+        }
+      }
+
+      // Merge adjacent slots of the same course in this semester if scheduled beside each other
+      const updatedSchedule = mergeAdjacentSameCourseSlots([...currentSchedule, candidate]);
+      setActiveRoutine(prev => ({
+        ...prev,
+        schedule: updatedSchedule
+      }));
+      showFeedback('success', `Scheduled ${data.courseCode} (Room ${assignedRoom}) on ${targetDay} (${targetPeriodId.toUpperCase()})`);
+      setDraggedItem(null);
+
+    } else if (data.type === 'MOVE_SLOT') {
+      const slot = data.slot;
+      if (!slot) return;
+
+      // If dropped onto the exact same position, do nothing
+      if (slot.day === targetDay && slot.periodId === targetPeriodId && slot.semesterId === targetSemesterId) {
+        setDraggedItem(null);
+        return;
+      }
+
+      const span = Number(slot.span) || 1;
+      const isLab = slot.courseType === 'Sessional' || span >= 3;
+      const covered = getCoveredPeriodIds(targetPeriodId, span);
+      if (!covered) {
+        showFeedback('error', `Cannot move ${slot.courseCode}: Cannot cross protected 1:00-2:00 PM Break or exceed daily periods.`);
+        setDraggedItem(null);
+        return;
+      }
+
+      const otherSlots = currentSchedule.filter(s => s.id !== slot.id);
+
+      // Check if target cell already has a slot for this semester
+      const existingAtTarget = otherSlots.find(s => 
+        s.day === targetDay && 
+        s.semesterId === targetSemesterId && 
+        s.periodId === targetPeriodId
+      );
+
+      if (existingAtTarget) {
+        // If same course: merge them into a single multi-hour cell!
+        if (existingAtTarget.courseCode === slot.courseCode || existingAtTarget.courseId === slot.courseId) {
+          const combinedSpan = (Number(existingAtTarget.span) || 1) + span;
+          const combinedCovered = getCoveredPeriodIds(targetPeriodId, combinedSpan);
+          if (!combinedCovered) {
+            showFeedback('error', `Cannot merge: Exceeds daily periods or crosses protected 1:00-2:00 PM Break.`);
+            setDraggedItem(null);
+            return;
+          }
+          const mergedSlot = {
+            ...existingAtTarget,
+            span: combinedSpan,
+            coveredPeriods: combinedCovered
+          };
+          const updatedSchedule = mergeAdjacentSameCourseSlots(otherSlots.map(s => s.id === existingAtTarget.id ? mergedSlot : s));
+          setActiveRoutine(prev => ({ ...prev, schedule: updatedSchedule }));
+          showFeedback('success', `Merged 2 periods of ${slot.courseCode} into a single ${combinedSpan}h class!`);
+          setDraggedItem(null);
+          return;
+        }
+
+        // If different course: swap them between the two cells
+        const newRoomForSlot = getAvailableRoom(targetDay, targetPeriodId, span, isLab, otherSlots.filter(s => s.id !== existingAtTarget.id), slot.room);
+        const newRoomForExisting = getAvailableRoom(slot.day, slot.periodId, existingAtTarget.span || 1, existingAtTarget.courseType === 'Sessional', otherSlots.filter(s => s.id !== existingAtTarget.id), existingAtTarget.room);
+
+        const movedSlot = normalizeSlot({
+          ...slot,
+          day: targetDay,
+          periodId: targetPeriodId,
+          semesterId: targetSemesterId,
+          room: newRoomForSlot
+        });
+
+        const movedExisting = normalizeSlot({
+          ...existingAtTarget,
+          day: slot.day,
+          periodId: slot.periodId,
+          room: newRoomForExisting
+        });
+
+        const swappedSchedule = otherSlots.filter(s => s.id !== existingAtTarget.id).concat([movedSlot, movedExisting]);
+        const conflict1 = checkSlotConflict(movedSlot, swappedSchedule.filter(s => s.id !== movedSlot.id), swappedSchedule);
+        const conflict2 = checkSlotConflict(movedExisting, swappedSchedule.filter(s => s.id !== movedExisting.id), swappedSchedule);
+
+        if (conflict1?.hasConflict || conflict2?.hasConflict) {
+          showFeedback('error', `Cannot swap: ${conflict1?.message || conflict2?.message}`);
+          setDraggedItem(null);
+          return;
+        }
+
+        const updatedSchedule = mergeAdjacentSameCourseSlots(swappedSchedule);
+        setActiveRoutine(prev => ({ ...prev, schedule: updatedSchedule }));
+        showFeedback('success', `Swapped ${slot.courseCode} and ${existingAtTarget.courseCode}!`);
+        setDraggedItem(null);
+        return;
+      }
+
+      // Target cell is empty: move slot with conflict-free room assignment
+      const assignedRoom = getAvailableRoom(targetDay, targetPeriodId, span, isLab, otherSlots, slot.room);
+
+      const candidate = normalizeSlot({
+        ...slot,
+        day: targetDay,
+        periodId: targetPeriodId,
+        semesterId: targetSemesterId,
+        termCode: targetSem.shortTerm || slot.termCode,
+        semesterName: targetSem.semesterName || slot.semesterName,
+        room: assignedRoom
+      });
+
+      // Check conflict against OTHER slots
+      const conflict = checkSlotConflict(candidate, otherSlots, otherSlots);
+      if (conflict && conflict.hasConflict) {
+        showFeedback('error', `Move Rejected (Conflict): ${conflict.message}. Original slot restored.`);
+        setDraggedItem(null);
+        return;
+      }
+
+      // Valid move! If landing beside another period of same course, merge them
+      const updatedSchedule = mergeAdjacentSameCourseSlots(otherSlots.concat([candidate]));
+      setActiveRoutine(prev => ({
+        ...prev,
+        schedule: updatedSchedule
+      }));
+      showFeedback('success', `Moved ${slot.courseCode} to ${targetDay} (${targetPeriodId.toUpperCase()}, Room ${assignedRoom})`);
+      setDraggedItem(null);
+    }
+  };
+
+  // =========================================================================
+  // 7. SAVE DRAFT & PUBLISH ROUTINE
+  // =========================================================================
+  const handleSaveRoutineDraft = async () => {
+    if (!activeRoutine) return;
+    setIsSavingRoutine(true);
+
+    try {
+      const routineDataPayload = {
+        ...activeRoutine.rawRoutineData,
+        routineName: activeRoutine.title,
+        department: activeRoutine.department,
+        academicYear: activeRoutine.academicYear,
+        effectiveFrom: activeRoutine.effectiveFrom,
+        semesters: activeRoutine.semesters,
+        schedule: activeRoutine.schedule || []
+      };
+
+      const payload = {
+        title: activeRoutine.title,
+        department: activeRoutine.department,
+        academicYear: activeRoutine.academicYear,
+        effectiveFrom: activeRoutine.effectiveFrom,
+        status: activeRoutine.status,
+        routineData: routineDataPayload
+      };
+
+      await safeFetchJson(`/api/routines/${activeRoutine.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+
+      showFeedback('success', 'Draft saved successfully to database!');
+      await fetchRoutinesList();
+    } catch (err) {
+      console.error('Error saving routine:', err);
+      showFeedback('error', 'Failed to save draft: ' + err.message);
+    } finally {
+      setIsSavingRoutine(false);
+    }
+  };
+
+  const handleConfirmPublish = async ({ note, diff }) => {
+    if (!activeRoutine) return;
+    setIsPublishing(true);
+
+    try {
+      // 1. Save current state first
+      const routineDataPayload = {
+        ...activeRoutine.rawRoutineData,
+        routineName: activeRoutine.title,
+        department: activeRoutine.department,
+        academicYear: activeRoutine.academicYear,
+        effectiveFrom: activeRoutine.effectiveFrom,
+        semesters: activeRoutine.semesters,
+        schedule: activeRoutine.schedule || []
+      };
+
+      await safeFetchJson(`/api/routines/${activeRoutine.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          title: activeRoutine.title,
+          department: activeRoutine.department,
+          academicYear: activeRoutine.academicYear,
+          effectiveFrom: activeRoutine.effectiveFrom,
+          status: 'PUBLISHED',
+          routineData: routineDataPayload
         })
       });
 
-      const data = await res.json();
-      if (res.ok) {
-        setRoutineStatus('PUBLISHED');
-        showToast('📢 Routine successfully posted as an Official Notice on the Notice Board!', 'success');
-      } else {
-        showToast(data.error || 'Failed to publish to Notice Board.', 'error');
-      }
+      // 2. Call publish endpoint
+      const publishRes = await safeFetchJson(`/api/routines/${activeRoutine.id}/publish`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          note,
+          diff,
+          updated_by: user?.name || user?.username || 'Department Authority'
+        })
+      });
+
+      const nextVersion = publishRes.version_number || (activeRoutine.version_number || 1) + 1;
+      setActiveRoutine(prev => ({
+        ...prev,
+        status: 'PUBLISHED',
+        is_active: 1,
+        version_number: nextVersion
+      }));
+
+      setOriginalRoutine(JSON.parse(JSON.stringify(activeRoutine)));
+      setIsPublishModalOpen(false);
+      showFeedback('success', `🎉 Published Version ${nextVersion}! Teacher profiles & Notice Board updated.`);
+      await fetchRoutinesList();
     } catch (err) {
       console.error('Publish error:', err);
-      showToast('Failed to publish: ' + err.message, 'error');
+      showFeedback('error', 'Failed to publish routine: ' + err.message);
     } finally {
-      setActionLoading(false);
+      setIsPublishing(false);
     }
   };
 
-  // Export to Microsoft Word (.doc)
-  const handleExportWord = () => {
-    const currentSession = sessions.find(s => s.id === selectedSessionId);
-    const currentSemester = semesters.find(s => s.id === selectedSemesterId);
+  // Restore historical routine version
+  const handleRestoreVersion = async (version) => {
+    if (!activeRoutine) return;
+    try {
+      const res = await safeFetchJson(`/api/routines/${activeRoutine.id}/restore-version/${version.id}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          restored_by: user?.name || user?.username || 'Department Authority'
+        })
+      });
 
-    exportRoutineToWord({
-      title: routineTitle,
-      type: routineMode,
-      sessionName: currentSession?.session_name,
-      semesterName: currentSemester?.semester_name,
-      routineData: routineMode === 'CLASS_ROUTINE'
-        ? { sessions: sessionsInRoutine.length > 0 ? sessionsInRoutine : [{ courses: configuredCourses }] }
-        : { exams: configuredExams }
-    });
+      if (res.routine) {
+        const r = res.routine;
+        const parsedData = r.routineData || {};
+        const rawSemesters = Array.isArray(parsedData.semesters) ? parsedData.semesters : [];
+        const normalizedSemesters = rawSemesters.map(sem => ({
+          ...sem,
+          courses: (sem.courses || []).map(normalizeCourse)
+        }));
+        const rawSchedule = Array.isArray(parsedData.schedule) ? parsedData.schedule : [];
+        const normalizedSchedule = rawSchedule.map(normalizeSlot);
 
-    showToast('📄 Routine exported as Microsoft Word (.doc) document!', 'success');
+        const loadedRoutine = {
+          id: r.id,
+          title: r.title,
+          department: r.department || 'CSE',
+          academicYear: r.academicYear || '',
+          effectiveFrom: r.effectiveFrom || '',
+          status: r.status || 'DRAFT',
+          version_number: r.version_number || res.new_version_number || 1,
+          is_active: r.is_active || 1,
+          semesters: normalizedSemesters,
+          schedule: normalizedSchedule,
+          rawRoutineData: parsedData
+        };
+
+        setActiveRoutine(loadedRoutine);
+        setOriginalRoutine(JSON.parse(JSON.stringify(loadedRoutine)));
+        setIsHistoryModalOpen(false);
+        showFeedback('success', `Restored Version ${version.version_number} as new Version ${res.new_version_number || loadedRoutine.version_number}!`);
+        await fetchRoutinesList();
+      }
+    } catch (err) {
+      console.error('Error restoring version:', err);
+      showFeedback('error', 'Failed to restore version: ' + err.message);
+    }
   };
 
-  // Export as PDF / Print
-  const handleExportPDF = () => {
+  // Delete Routine
+  const handleDeleteRoutine = async () => {
+    if (!deleteTargetRoutine) return;
+    setDeletingRoutine(true);
+
+    try {
+      await safeFetchJson(`/api/routines/${deleteTargetRoutine.id}`, {
+        method: 'DELETE'
+      });
+
+      showFeedback('success', `Deleted routine "${deleteTargetRoutine.title}" successfully.`);
+      setDeleteTargetRoutine(null);
+      if (activeRoutine?.id === deleteTargetRoutine.id) {
+        setActiveRoutine(null);
+      }
+      await fetchRoutinesList();
+    } catch (err) {
+      console.error('Error deleting routine:', err);
+      showFeedback('error', 'Failed to delete routine: ' + err.message);
+    } finally {
+      setDeletingRoutine(false);
+    }
+  };
+
+  // Export Word (.doc)
+  const handleExportWord = () => {
+    if (!activeRoutine) return;
+    try {
+      exportOfficialRoutineToWord({
+        title: activeRoutine.title,
+        academicYear: activeRoutine.academicYear,
+        effectiveFrom: activeRoutine.effectiveFrom,
+        semesters: activeRoutine.semesters || [],
+        schedule: activeRoutine.schedule || [],
+        teacherWorkloadMap
+      });
+      showFeedback('success', 'Official routine exported to Word (.doc) successfully!');
+    } catch (err) {
+      console.error('Word export error:', err);
+      showFeedback('error', 'Failed to export Word document: ' + err.message);
+    }
+  };
+
+  // Print Routine
+  const handlePrintRoutine = () => {
     window.print();
   };
 
-  // Fetch Saved Routines List
-  const handleOpenSavedDrawer = async () => {
-    setIsSavedDrawerOpen(true);
-    const token = localStorage.getItem('token');
-    const headers = token ? { Authorization: `Bearer ${token}` } : {};
+  // Display schedule with adjacent same-course periods merged
+  const mergedDisplaySchedule = useMemo(() => {
+    return mergeAdjacentSameCourseSlots(activeRoutine?.schedule || []);
+  }, [activeRoutine?.schedule]);
 
-    try {
-      const res = await fetch('/api/routines', { credentials: 'include', headers });
-      const data = await res.json();
-      if (data.routines) {
-        setSavedRoutinesList(data.routines);
-      }
-    } catch (err) {
-      console.error('Failed to load saved routines:', err);
-    }
-  };
+  // Teacher workload map memo
+  const teacherWorkloadMap = useMemo(() => {
+    if (!activeRoutine || !Array.isArray(activeRoutine.semesters)) return {};
+    const map = {};
+    const schedule = activeRoutine.schedule || [];
 
-  // Load a Saved Routine from Drawer
-  const handleLoadSavedRoutine = async (routineId) => {
-    const token = localStorage.getItem('token');
-    const headers = token ? { Authorization: `Bearer ${token}` } : {};
-
-    try {
-      const res = await fetch(`/api/routines/${routineId}`, { credentials: 'include', headers });
-      const data = await res.json();
-
-      if (data.routine) {
-        const r = data.routine;
-        setSavedRoutineId(r.id);
-        setRoutineTitle(r.title);
-        setRoutineMode(r.type);
-        setRoutineStatus(r.status);
-        if (r.session_id) setSelectedSessionId(r.session_id);
-        if (r.semester_id) setSelectedSemesterId(r.semester_id);
-
-        if (r.type === 'CLASS_ROUTINE' && r.routineData?.sessions) {
-          setSessionsInRoutine(r.routineData.sessions);
-          if (r.routineData.sessions[0]?.courses) {
-            setConfiguredCourses(r.routineData.sessions[0].courses);
-          }
-        } else if (r.type === 'EXAM_ROUTINE' && r.routineData?.exams) {
-          setConfiguredExams(r.routineData.exams);
+    activeRoutine.semesters.forEach(sem => {
+      (sem.courses || []).forEach(c => {
+        const t = c.teacher;
+        if (!t || t.type === 'none' || c.assignmentStatus === 'Pending' || t.teacherName === 'Not Assigned') {
+          return;
         }
 
-        setIsGenerated(true);
-        setIsSavedDrawerOpen(false);
-        showToast('📂 Saved routine loaded successfully!', 'success');
-      }
-    } catch (err) {
-      console.error('Error loading routine:', err);
-      showToast('Failed to load routine: ' + err.message, 'error');
-    }
-  };
+        const isDept = t.type === 'department' && t.teacherId;
+        const key = isDept
+          ? `dept_${t.teacherId}`
+          : `non_dept_${(t.teacherName || '').trim().toLowerCase()}_${(t.department || '').trim().toLowerCase()}`;
 
-  // Active Session and Semester display objects
-  const activeSessionObj = sessions.find(s => s.id === selectedSessionId);
-  const activeSemesterObj = semesters.find(s => s.id === selectedSemesterId);
+        if (!map[key]) {
+          map[key] = {
+            teacherId: t.teacherId || null,
+            teacherName: t.teacherName,
+            type: t.type,
+            department: t.department || 'CSE',
+            designation: t.designation || '',
+            shortCode: t.shortCode || '',
+            courseCount: 0,
+            weeklyHours: 0,
+            scheduledHours: 0,
+            remainingHours: 0,
+            courses: []
+          };
+        }
 
-  // Group Courses into Theory and Lab
-  const theoryCourses = useMemo(() => configuredCourses.filter(c => c.courseType !== 'LAB'), [configuredCourses]);
-  const labCourses = useMemo(() => configuredCourses.filter(c => c.courseType === 'LAB'), [configuredCourses]);
+        const hrs = Number(c.weeklyHours || c.creditHours || 3);
+        const cid = c.courseId || c.id;
+        const slots = schedule.filter(s => {
+          const matchCourse = (s.courseId && (s.courseId === cid || s.courseId === c.id || s.courseId === c.courseId)) ||
+            (s.courseCode && c.courseCode && s.courseCode.trim().toUpperCase() === c.courseCode.trim().toUpperCase());
+          return matchCourse;
+        });
+        const courseSchedHours = slots.reduce((acc, s) => acc + (Number(s.span) || 1), 0);
+        const courseRemainingHours = Math.max(0, hrs - courseSchedHours);
+
+        map[key].courseCount += 1;
+        map[key].weeklyHours += hrs;
+        map[key].scheduledHours += courseSchedHours;
+        map[key].remainingHours += courseRemainingHours;
+
+        map[key].courses.push({
+          courseId: cid,
+          courseCode: c.courseCode,
+          courseTitle: c.courseTitle,
+          creditHours: Number(c.creditHours || 3),
+          weeklyHours: hrs,
+          scheduledHours: courseSchedHours,
+          remainingHours: courseRemainingHours,
+          courseType: c.courseType || 'Theory',
+          semesterName: sem.semesterName,
+          termCode: sem.shortTerm || sem.termCode
+        });
+      });
+    });
+
+    return map;
+  }, [activeRoutine]);
+
+  // Unassigned / Unscheduled Courses helper memo
+  const unassignedCoursesList = useMemo(() => {
+    if (!activeRoutine || !Array.isArray(activeRoutine.semesters)) return [];
+    const list = [];
+    activeRoutine.semesters.forEach((sem, sIdx) => {
+      (sem.courses || []).forEach((c, cIdx) => {
+        const isUnassigned = !c.teacher || c.teacher.type === 'none' || c.teacher.teacherName === 'Not Assigned' || c.assignmentStatus === 'Pending';
+        const isScheduled = (activeRoutine.schedule || []).some(s => s.courseId === (c.courseId || c.id));
+        if (isUnassigned || !isScheduled) {
+          list.push({
+            semesterIndex: sIdx,
+            courseIndex: cIdx,
+            semesterId: sem.semesterId,
+            semesterName: sem.semesterName,
+            termCode: sem.shortTerm || sem.termCode,
+            course: c,
+            isUnassigned,
+            isScheduled
+          });
+        }
+      });
+    });
+    return list;
+  }, [activeRoutine]);
+
+  // Active semester for current tab
+  const activeSemester = activeRoutine?.semesters[selectedSemesterIndex] || null;
+
+  // Semesters for add semester modal
+  const semestersForSelectedSession = useMemo(() => {
+    const sess = academicTree.find(s => s.id === selectedSessionForAdd);
+    return sess?.semesters || [];
+  }, [academicTree, selectedSessionForAdd]);
 
   return (
-    <div className="routine-builder-wrapper" style={{ paddingBottom: '4rem' }}>
-      {/* Toast Notification */}
-      {notification && (
-        <div style={{
-          position: 'fixed',
-          top: '20px',
-          right: '24px',
-          zIndex: 9999,
-          background: notification.type === 'error' ? '#ef4444' : '#059669',
-          color: '#ffffff',
-          padding: '0.85rem 1.4rem',
-          borderRadius: '12px',
-          boxShadow: '0 10px 25px rgba(0,0,0,0.25)',
-          display: 'flex',
-          alignItems: 'center',
-          gap: '0.75rem',
-          fontWeight: 700,
-          fontSize: '0.9rem',
-          animation: 'fadeIn 0.2s ease'
-        }}>
-          {notification.type === 'error' ? <AlertTriangle size={20} /> : <CheckCircle2 size={20} />}
-          <span>{notification.message}</span>
+    <div className="routine-management-page" style={{ padding: '1.5rem', display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+      
+      {/* FEEDBACK TOAST */}
+      {feedback && (
+        <div 
+          className="no-print" 
+          style={{
+            padding: '0.85rem 1.25rem',
+            borderRadius: '12px',
+            background: feedback.type === 'success' ? '#ecfdf5' : feedback.type === 'info' ? '#eff6ff' : '#fef2f2',
+            border: feedback.type === 'success' ? '1px solid #a7f3d0' : feedback.type === 'info' ? '1px solid #bfdbfe' : '1px solid #fecaca',
+            color: feedback.type === 'success' ? '#065f46' : feedback.type === 'info' ? '#1e40af' : '#991b1b',
+            fontSize: '0.85rem',
+            fontWeight: 700,
+            display: 'flex',
+            alignItems: 'center',
+            gap: '0.6rem',
+            boxShadow: '0 4px 15px rgba(0,0,0,0.06)',
+            animation: 'fadeInUp 0.2s ease-out'
+          }}
+        >
+          {feedback.type === 'success' ? <CheckCircle2 size={18} /> : feedback.type === 'info' ? <Info size={18} /> : <AlertCircle size={18} />}
+          <span>{feedback.text}</span>
+          <button
+            type="button"
+            onClick={() => setFeedback(null)}
+            style={{ marginLeft: 'auto', background: 'none', border: 'none', cursor: 'pointer', color: 'inherit' }}
+          >
+            <X size={16} />
+          </button>
         </div>
       )}
 
-      {/* Top Header & Navigation Bar */}
-      <div className="routine-header-card" style={{
-        background: 'linear-gradient(135deg, #09101d 0%, #0f172a 100%)',
-        border: '1px solid rgba(255, 255, 255, 0.1)',
-        borderRadius: '16px',
-        padding: '1.5rem 2rem',
-        marginBottom: '1.75rem',
-        color: '#ffffff',
-        display: 'flex',
-        flexWrap: 'wrap',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-        gap: '1.25rem',
-        boxShadow: '0 12px 30px rgba(0, 0, 0, 0.25)'
-      }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
-          {onBackToDashboard && (
-            <button
-              onClick={onBackToDashboard}
-              className="btn btn-secondary"
-              style={{
-                background: 'rgba(255, 255, 255, 0.08)',
-                color: '#cbd5e1',
-                border: '1px solid rgba(255, 255, 255, 0.15)',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '0.4rem',
-                fontSize: '0.85rem',
-                padding: '0.5rem 0.9rem'
-              }}
-              title="Return to your default role workspace"
-            >
-              <ArrowLeft size={16} />
-              <span>Back to Dashboard</span>
-            </button>
-          )}
-
-          <div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem' }}>
-              <div style={{
-                background: 'linear-gradient(135deg, #3b82f6, #6366f1)',
-                width: '38px',
-                height: '38px',
-                borderRadius: '10px',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                boxShadow: '0 4px 14px rgba(59, 130, 246, 0.4)'
-              }}>
-                <CalendarCheck size={22} color="#ffffff" />
-              </div>
-              <h2 style={{ fontSize: '1.45rem', fontWeight: 800, letterSpacing: '-0.02em', margin: 0 }}>
-                Academic Routine & Timetable Builder
-              </h2>
-            </div>
-            <p style={{ color: '#94a3b8', fontSize: '0.85rem', margin: '0.35rem 0 0 0' }}>
-              Time-efficient routine maker with faculty phone auto-fill, lab scheduling, on-the-fly slot editing, and 1-click notice publishing.
-            </p>
-          </div>
-        </div>
-
-        {/* Saved Routines Drawer Button */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-          <button
-            onClick={handleOpenSavedDrawer}
-            className="btn btn-secondary"
-            style={{
-              background: 'rgba(59, 130, 246, 0.12)',
-              borderColor: 'rgba(59, 130, 246, 0.3)',
-              color: '#93c5fd',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '0.5rem',
-              fontWeight: 700,
-              fontSize: '0.85rem',
-              padding: '0.6rem 1.1rem'
-            }}
-          >
-            <FolderOpen size={16} />
-            <span>Saved Routines</span>
-          </button>
-        </div>
-      </div>
-
-      {/* Routine Mode Switcher (Class Routine vs Exam Routine) */}
-      <div style={{
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-        flexWrap: 'wrap',
-        gap: '1rem',
-        marginBottom: '1.5rem',
-        background: '#ffffff',
-        padding: '0.75rem 1.25rem',
-        borderRadius: '14px',
-        border: '1px solid var(--border)',
-        boxShadow: 'var(--shadow-sm)'
-      }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-          <span style={{ fontSize: '0.85rem', fontWeight: 800, color: '#475569', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-            Select Mode:
-          </span>
-          <div style={{
-            display: 'inline-flex',
-            background: '#f1f5f9',
-            padding: '4px',
-            borderRadius: '10px',
-            border: '1px solid #e2e8f0'
-          }}>
-            <button
-              onClick={() => { setRoutineMode('CLASS_ROUTINE'); setIsGenerated(false); }}
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: '0.5rem',
-                padding: '0.55rem 1.25rem',
-                borderRadius: '8px',
-                border: 'none',
-                fontWeight: 700,
-                fontSize: '0.875rem',
-                cursor: 'pointer',
-                transition: 'all 0.15s ease',
-                background: routineMode === 'CLASS_ROUTINE' ? '#2563eb' : 'transparent',
-                color: routineMode === 'CLASS_ROUTINE' ? '#ffffff' : '#64748b',
-                boxShadow: routineMode === 'CLASS_ROUTINE' ? '0 2px 8px rgba(37, 99, 235, 0.3)' : 'none'
-              }}
-            >
-              <CalendarClock size={16} />
-              <span>Class Routine</span>
-            </button>
-
-            <button
-              onClick={() => { setRoutineMode('EXAM_ROUTINE'); setIsGenerated(false); }}
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: '0.5rem',
-                padding: '0.55rem 1.25rem',
-                borderRadius: '8px',
-                border: 'none',
-                fontWeight: 700,
-                fontSize: '0.875rem',
-                cursor: 'pointer',
-                transition: 'all 0.15s ease',
-                background: routineMode === 'EXAM_ROUTINE' ? '#7c3aed' : 'transparent',
-                color: routineMode === 'EXAM_ROUTINE' ? '#ffffff' : '#64748b',
-                boxShadow: routineMode === 'EXAM_ROUTINE' ? '0 2px 8px rgba(124, 58, 237, 0.3)' : 'none'
-              }}
-            >
-              <GraduationCap size={16} />
-              <span>Exam Routine</span>
-            </button>
-          </div>
-        </div>
-
-        {/* Quick Automation & Reset */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-          {routineMode === 'CLASS_ROUTINE' && (
-            <button
-              onClick={handleSmartAutoSchedule}
-              className="btn btn-secondary"
-              style={{
-                background: 'linear-gradient(135deg, rgba(16, 185, 129, 0.15), rgba(5, 150, 105, 0.1))',
-                borderColor: '#10b981',
-                color: '#047857',
-                fontWeight: 700,
-                fontSize: '0.85rem',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '0.4rem',
-                padding: '0.55rem 1rem'
-              }}
-              title="Automatically distribute conflict-free periods and labs based on credits!"
-            >
-              <Sparkles size={16} color="#059669" />
-              <span>⚡ 1-Click Smart Auto-Schedule</span>
-            </button>
-          )}
-
-          <button
-            onClick={() => setIsGenerated(!isGenerated)}
-            className="btn btn-secondary"
-            style={{ fontSize: '0.85rem', padding: '0.55rem 1rem' }}
-          >
-            <Eye size={16} />
-            <span>{isGenerated ? 'Switch to Builder Form' : 'View Timetable Preview'}</span>
-          </button>
-        </div>
-      </div>
-
-      {/* Routine Title Input */}
-      <div className="card" style={{ padding: '1.25rem 1.5rem', marginBottom: '1.5rem', background: '#ffffff' }}>
-        <label style={{ display: 'block', fontSize: '0.825rem', fontWeight: 800, color: '#334155', marginBottom: '0.4rem', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
-          Routine Title (Displayed on Official Notice & Documents)
-        </label>
-        <input
-          type="text"
-          value={routineTitle}
-          onChange={(e) => setRoutineTitle(e.target.value)}
-          placeholder={routineMode === 'CLASS_ROUTINE' ? 'e.g., Department of CSE - Academic Class Routine 2024' : 'e.g., B.Sc. Engineering 3rd Year 1st Semester Final Examination'}
-          style={{
-            width: '100%',
-            padding: '0.75rem 1rem',
-            borderRadius: '10px',
-            border: '1.5px solid #cbd5e1',
-            fontSize: '1rem',
-            fontWeight: 700,
-            color: '#0f172a'
+      {/* ========================================================================= */}
+      {/* 1. THREE-CARD ROUTINE LANDING HEADER */}
+      {/* ========================================================================= */}
+      <div className="no-print">
+        <RoutineLandingHeader 
+          activeCategory={activeCategory}
+          onSelectCategory={(cat) => {
+            setActiveCategory(cat);
           }}
         />
       </div>
 
-      {/* STEP 1: Academic Session & Running Semester Selector */}
-      <div className="card" style={{ padding: '1.5rem', marginBottom: '1.75rem', background: '#ffffff' }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1rem', borderBottom: '1px solid #f1f5f9', paddingBottom: '0.75rem' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-            <Layers size={20} color="#2563eb" />
-            <h3 style={{ fontSize: '1.1rem', fontWeight: 800, margin: 0, color: '#0f172a' }}>
-              1. Add Academic Session & Running Semester
-            </h3>
-          </div>
-          <span style={{ fontSize: '0.75rem', fontWeight: 700, color: '#64748b' }}>
-            Courses and Lab sessions load automatically
-          </span>
-        </div>
-
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '1.25rem' }}>
-          {/* Session Picker */}
-          <div>
-            <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 700, color: '#334155', marginBottom: '0.4rem' }}>
-              Academic Session:
-            </label>
-            <select
-              value={selectedSessionId}
-              onChange={(e) => setSelectedSessionId(e.target.value)}
-              style={{
-                width: '100%',
-                padding: '0.7rem 0.9rem',
-                borderRadius: '10px',
-                border: '1.5px solid #cbd5e1',
-                fontSize: '0.9rem',
-                fontWeight: 600,
-                background: '#f8fafc',
-                color: '#0f172a'
-              }}
-            >
-              {sessions.map(s => (
-                <option key={s.id} value={s.id}>
-                  {s.session_name} {s.is_current ? '⭐ (Current Active Session)' : ''}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          {/* Semester Picker (Auto-highlights Running Semester) */}
-          <div>
-            <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 700, color: '#334155', marginBottom: '0.4rem' }}>
-              Target Semester:
-            </label>
-            <select
-              value={selectedSemesterId}
-              onChange={(e) => setSelectedSemesterId(e.target.value)}
-              style={{
-                width: '100%',
-                padding: '0.7rem 0.9rem',
-                borderRadius: '10px',
-                border: '1.5px solid #cbd5e1',
-                fontSize: '0.9rem',
-                fontWeight: 600,
-                background: '#f8fafc',
-                color: '#0f172a'
-              }}
-            >
-              {semesters.map(sem => (
-                <option key={sem.id} value={sem.id}>
-                  {sem.semester_name} ({sem.term_code}) {sem.is_active ? '🔥 [Running Semester]' : ''}
-                </option>
-              ))}
-            </select>
-          </div>
-        </div>
-
-        {/* Selected Summary Pill */}
-        {activeSemesterObj && (
-          <div style={{
-            marginTop: '1rem',
-            padding: '0.65rem 1rem',
-            background: activeSemesterObj.is_active ? 'rgba(16, 185, 129, 0.08)' : 'rgba(59, 130, 246, 0.08)',
-            border: activeSemesterObj.is_active ? '1px solid rgba(16, 185, 129, 0.25)' : '1px solid rgba(59, 130, 246, 0.25)',
-            borderRadius: '10px',
+      {/* ========================================================================= */}
+      {/* 2. LAB EXAM / THEORY EXAM FUTURE MODULE CARDS */}
+      {/* ========================================================================= */}
+      {activeCategory !== 'CLASS_ROUTINE' && (
+        <div 
+          style={{
+            background: 'linear-gradient(135deg, #09101d 0%, #0f172a 100%)',
+            borderRadius: '20px',
+            padding: '3rem 2rem',
+            color: '#ffffff',
+            textAlign: 'center',
+            border: '1px solid rgba(255, 255, 255, 0.1)',
+            boxShadow: '0 20px 40px rgba(0, 0, 0, 0.3)',
             display: 'flex',
+            flexDirection: 'column',
             alignItems: 'center',
-            justifyContent: 'space-between',
-            flexWrap: 'wrap',
-            gap: '0.5rem'
-          }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-              <span style={{
-                fontSize: '0.7rem',
-                fontWeight: 800,
-                background: activeSemesterObj.is_active ? '#059669' : '#2563eb',
+            gap: '1.25rem'
+          }}
+        >
+          <div 
+            style={{
+              width: '64px',
+              height: '64px',
+              borderRadius: '20px',
+              background: activeCategory === 'LAB_EXAM_ROUTINE' 
+                ? 'linear-gradient(135deg, #10b981 0%, #059669 100%)' 
+                : 'linear-gradient(135deg, #f59e0b 0%, #d97706 100%)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              boxShadow: '0 10px 25px rgba(0,0,0,0.3)'
+            }}
+          >
+            {activeCategory === 'LAB_EXAM_ROUTINE' ? <FlaskConical size={32} color="#ffffff" /> : <GraduationCap size={32} color="#ffffff" />}
+          </div>
+
+          <div>
+            <span className="badge" style={{ background: 'rgba(255, 255, 255, 0.15)', color: '#ffffff', fontWeight: 800, padding: '0.35rem 0.85rem' }}>
+              ⚡ Architecture Ready • Upcoming Exam Module
+            </span>
+            <h2 style={{ fontSize: '1.75rem', fontWeight: 800, margin: '0.85rem 0 0.4rem', color: '#ffffff' }}>
+              {activeCategory === 'LAB_EXAM_ROUTINE' ? 'Lab Exam Routine System' : 'Theory Exam Routine System'}
+            </h2>
+            <p style={{ maxWidth: '640px', margin: '0 auto', fontSize: '0.9rem', color: '#94a3b8', lineHeight: 1.6 }}>
+              {activeCategory === 'LAB_EXAM_ROUTINE'
+                ? 'The database and scheduling infrastructure are prepared for laboratory exam management. This section will handle lab exam groups, lab room assignments (ACL, Robotics, Hardware, S/W), external examiner scheduling, and seat plans.'
+                : 'The database and scheduling infrastructure are prepared for semester final theory examinations. This section will handle exam hall seat arrangements, invigilator teacher rosters, and examination committee routines.'}
+            </p>
+          </div>
+
+          <div style={{ display: 'flex', gap: '0.75rem', marginTop: '0.5rem' }}>
+            <button
+              type="button"
+              onClick={() => setActiveCategory('CLASS_ROUTINE')}
+              style={{
+                background: 'linear-gradient(135deg, #6366f1 0%, #4f46e5 100%)',
                 color: '#ffffff',
-                padding: '0.15rem 0.5rem',
-                borderRadius: '6px'
-              }}>
-                {activeSemesterObj.is_active ? 'RUNNING SEMESTER' : 'SEMESTER'}
-              </span>
-              <span style={{ fontSize: '0.85rem', fontWeight: 700, color: '#0f172a' }}>
-                {activeSessionObj?.session_name} &bull; {activeSemesterObj.semester_name}
-              </span>
+                border: 'none',
+                padding: '0.65rem 1.5rem',
+                borderRadius: '12px',
+                fontWeight: 800,
+                fontSize: '0.88rem',
+                cursor: 'pointer',
+                boxShadow: '0 4px 15px rgba(99, 102, 241, 0.4)'
+              }}
+            >
+              Open Class Routine Management
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================================= */}
+      {/* 3. CLASS ROUTINE: DASHBOARD VIEW */}
+      {/* ========================================================================= */}
+      {activeCategory === 'CLASS_ROUTINE' && subViewMode === 'DASHBOARD' && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '1.75rem' }}>
+          
+          {/* Main Hero Dashboard Card */}
+          <ClassRoutineDashboard 
+            activeRoutine={activeRoutine}
+            loading={loadingActiveRoutine}
+            onUpdateRoutine={() => {
+              setSubViewMode('BUILDER');
+              setWorkspaceTab('TIMETABLE_GRID');
+            }}
+            onViewRoutine={() => {
+              setSubViewMode('BUILDER');
+              setWorkspaceTab('TIMETABLE_GRID');
+            }}
+            onRoutineHistory={() => setIsHistoryModalOpen(true)}
+            onManageCourses={() => {
+              setSubViewMode('BUILDER');
+              setWorkspaceTab('COURSES');
+            }}
+            onManageTeachers={() => setIsWorkloadModalOpen(true)}
+            onExportWord={handleExportWord}
+            onPrint={handlePrintRoutine}
+          />
+
+          {/* Quick Routine Switcher / All Routines Table */}
+          <div 
+            className="no-print card"
+            style={{
+              background: '#ffffff',
+              borderRadius: '18px',
+              border: '1px solid #e2e8f0',
+              padding: '1.5rem',
+              boxShadow: '0 4px 20px rgba(0, 0, 0, 0.03)'
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1.25rem' }}>
+              <div>
+                <h3 style={{ margin: 0, fontSize: '1.15rem', fontWeight: 800, color: '#0f172a' }}>
+                  All Academic Routines ({routinesList.length})
+                </h3>
+                <p style={{ margin: '0.2rem 0 0', fontSize: '0.8rem', color: '#64748b' }}>
+                  Select or switch active routines across academic sessions.
+                </p>
+              </div>
+
+              <div style={{ display: 'flex', gap: '0.65rem' }}>
+                <button
+                  type="button"
+                  onClick={fetchRoutinesList}
+                  style={{
+                    background: '#f8fafc',
+                    border: '1px solid #cbd5e1',
+                    padding: '0.5rem 0.85rem',
+                    borderRadius: '8px',
+                    fontSize: '0.8rem',
+                    fontWeight: 700,
+                    color: '#475569',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '0.4rem',
+                    cursor: 'pointer'
+                  }}
+                >
+                  <RefreshCw size={14} className={loadingRoutines ? 'spin' : ''} /> Refresh
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setIsCreateModalOpen(true)}
+                  style={{
+                    background: 'linear-gradient(135deg, #6366f1 0%, #4f46e5 100%)',
+                    color: '#ffffff',
+                    border: 'none',
+                    padding: '0.5rem 1.15rem',
+                    borderRadius: '8px',
+                    fontSize: '0.82rem',
+                    fontWeight: 800,
+                    cursor: 'pointer',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '0.4rem',
+                    boxShadow: '0 4px 12px rgba(99, 102, 241, 0.3)'
+                  }}
+                >
+                  <PlusCircle size={16} /> + New Routine
+                </button>
+              </div>
             </div>
 
-            <div style={{ fontSize: '0.8rem', color: '#475569', fontWeight: 600 }}>
-              {theoryCourses.length} Theory Courses &bull; {labCourses.length} Lab / Sessional Courses
+            {loadingRoutines ? (
+              <div style={{ padding: '2.5rem', textAlign: 'center', color: '#64748b' }}>
+                <RefreshCw size={24} className="spin" style={{ margin: '0 auto 0.5rem', color: '#6366f1' }} />
+                <div style={{ fontWeight: 700, fontSize: '0.9rem' }}>Loading Academic Routines...</div>
+              </div>
+            ) : routinesList.length === 0 ? (
+              <div style={{ padding: '3rem', textAlign: 'center', color: '#64748b' }}>
+                <CalendarCheck size={42} style={{ color: '#cbd5e1', margin: '0 auto 0.75rem' }} />
+                <h4 style={{ margin: 0, fontSize: '1rem', fontWeight: 800, color: '#0f172a' }}>No Routines Created Yet</h4>
+                <p style={{ margin: '0.35rem 0 1rem', fontSize: '0.82rem' }}>
+                  Create your first university routine to start managing semesters and schedules.
+                </p>
+                <button
+                  type="button"
+                  onClick={() => setIsCreateModalOpen(true)}
+                  style={{
+                    background: '#6366f1',
+                    color: '#ffffff',
+                    border: 'none',
+                    padding: '0.55rem 1.25rem',
+                    borderRadius: '8px',
+                    fontWeight: 800,
+                    fontSize: '0.82rem',
+                    cursor: 'pointer'
+                  }}
+                >
+                  Create Routine
+                </button>
+              </div>
+            ) : (
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: '1rem' }}>
+                {routinesList.map(r => {
+                  const isCurrentActive = activeRoutine?.id === r.id;
+                  const isDbActive = Boolean(r.is_active);
+
+                  return (
+                    <div 
+                      key={r.id}
+                      style={{
+                        padding: '1.15rem',
+                        borderRadius: '14px',
+                        border: isCurrentActive ? '2px solid #6366f1' : '1px solid #e2e8f0',
+                        background: isCurrentActive ? '#f8fafc' : '#ffffff',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: '0.75rem',
+                        transition: 'all 0.2s',
+                        boxShadow: isCurrentActive ? '0 4px 15px rgba(99, 102, 241, 0.1)' : 'none'
+                      }}
+                    >
+                      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '0.5rem' }}>
+                        <div>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', flexWrap: 'wrap' }}>
+                            <h4 style={{ margin: 0, fontSize: '0.98rem', fontWeight: 800, color: '#0f172a' }}>
+                              {r.title}
+                            </h4>
+                            {isDbActive && (
+                              <span className="badge" style={{ background: '#ecfdf5', color: '#059669', border: '1px solid #a7f3d0', fontSize: '0.68rem', fontWeight: 800 }}>
+                                Active
+                              </span>
+                            )}
+                          </div>
+                          <div style={{ fontSize: '0.78rem', color: '#64748b', marginTop: '0.2rem' }}>
+                            {r.academicYear} • CSE
+                          </div>
+                        </div>
+
+                        <span className="badge" style={{ background: r.status === 'PUBLISHED' ? '#ecfdf5' : '#f1f5f9', color: r.status === 'PUBLISHED' ? '#059669' : '#475569', fontSize: '0.72rem', fontWeight: 800 }}>
+                          v{r.version_number || 1} {r.status}
+                        </span>
+                      </div>
+
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', paddingTop: '0.5rem', borderTop: '1px solid #f1f5f9', marginTop: 'auto' }}>
+                        <div style={{ display: 'flex', gap: '0.4rem' }}>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              handleOpenRoutine(r.id);
+                              setSubViewMode('BUILDER');
+                            }}
+                            style={{
+                              background: '#6366f1',
+                              color: '#ffffff',
+                              border: 'none',
+                              padding: '0.4rem 0.85rem',
+                              borderRadius: '6px',
+                              fontSize: '0.78rem',
+                              fontWeight: 800,
+                              cursor: 'pointer'
+                            }}
+                          >
+                            Open & Edit
+                          </button>
+
+                          {activeRoutine?.id !== r.id && (
+                            <button
+                              type="button"
+                              onClick={() => handleOpenRoutine(r.id)}
+                              style={{
+                                background: '#f8fafc',
+                                border: '1px solid #cbd5e1',
+                                color: '#475569',
+                                padding: '0.4rem 0.75rem',
+                                borderRadius: '6px',
+                                fontSize: '0.78rem',
+                                fontWeight: 700,
+                                cursor: 'pointer'
+                              }}
+                            >
+                              Select
+                            </button>
+                          )}
+                        </div>
+
+                        <button
+                          type="button"
+                          onClick={() => setDeleteTargetRoutine(r)}
+                          style={{
+                            background: 'none',
+                            border: 'none',
+                            color: '#94a3b8',
+                            cursor: 'pointer',
+                            padding: '4px',
+                            transition: 'color 0.2s'
+                          }}
+                          onMouseEnter={(e) => e.target.style.color = '#ef4444'}
+                          onMouseLeave={(e) => e.target.style.color = '#94a3b8'}
+                          title="Delete Routine"
+                        >
+                          <Trash2 size={16} />
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+
+        </div>
+      )}
+
+      {/* ========================================================================= */}
+      {/* 4. CLASS ROUTINE: BUILDER WORKSPACE VIEW */}
+      {/* ========================================================================= */}
+      {activeCategory === 'CLASS_ROUTINE' && subViewMode === 'BUILDER' && activeRoutine && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+          
+          {/* Builder Top Action Bar */}
+          <div 
+            className="no-print"
+            style={{
+              background: 'linear-gradient(135deg, #09101d 0%, #0f172a 100%)',
+              borderRadius: '16px',
+              padding: '1.25rem 1.5rem',
+              color: '#ffffff',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              flexWrap: 'wrap',
+              gap: '1rem',
+              boxShadow: '0 10px 25px rgba(0, 0, 0, 0.25)',
+              border: '1px solid rgba(99, 102, 241, 0.2)'
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+              <button
+                type="button"
+                onClick={() => setSubViewMode('DASHBOARD')}
+                style={{
+                  background: 'rgba(255, 255, 255, 0.1)',
+                  color: '#ffffff',
+                  border: '1px solid rgba(255, 255, 255, 0.2)',
+                  padding: '0.5rem 0.85rem',
+                  borderRadius: '8px',
+                  fontWeight: 700,
+                  fontSize: '0.8rem',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '0.4rem',
+                  cursor: 'pointer'
+                }}
+              >
+                <ArrowLeft size={16} /> Routine Dashboard
+              </button>
+
+              <div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                  <h2 style={{ margin: 0, fontSize: '1.35rem', fontWeight: 800, color: '#ffffff' }}>
+                    {activeRoutine.title}
+                  </h2>
+                  <span className="badge" style={{ background: '#6366f1', color: '#ffffff', fontSize: '0.72rem', fontWeight: 800 }}>
+                    v{activeRoutine.version_number || 1}
+                  </span>
+                  {Boolean(activeRoutine.is_active) && (
+                    <span className="badge" style={{ background: '#10b981', color: '#ffffff', fontSize: '0.72rem', fontWeight: 800 }}>
+                      Active
+                    </span>
+                  )}
+                </div>
+                <div style={{ fontSize: '0.8rem', color: '#94a3b8', marginTop: '0.2rem' }}>
+                  {activeRoutine.academicYear} • {activeRoutine.department} Department • Effective: {activeRoutine.effectiveFrom || 'Current'}
+                </div>
+              </div>
+            </div>
+
+            {/* Builder Action Buttons */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem', flexWrap: 'wrap' }}>
+              <button
+                type="button"
+                onClick={() => setIsAutoScheduleModalOpen(true)}
+                style={{
+                  background: 'linear-gradient(135deg, #6366f1 0%, #4f46e5 100%)',
+                  color: '#ffffff',
+                  border: 'none',
+                  padding: '0.55rem 1.15rem',
+                  borderRadius: '10px',
+                  fontWeight: 800,
+                  fontSize: '0.82rem',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '0.45rem',
+                  cursor: 'pointer',
+                  boxShadow: '0 4px 15px rgba(99, 102, 241, 0.4)'
+                }}
+              >
+                <Sparkles size={16} /> Auto-Generate Routine
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setIsHistoryModalOpen(true)}
+                style={{
+                  background: 'rgba(255, 255, 255, 0.1)',
+                  color: '#ffffff',
+                  border: '1px solid rgba(255, 255, 255, 0.2)',
+                  padding: '0.55rem 0.95rem',
+                  borderRadius: '10px',
+                  fontWeight: 700,
+                  fontSize: '0.82rem',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '0.4rem',
+                  cursor: 'pointer'
+                }}
+              >
+                <History size={16} /> History
+              </button>
+
+              <button
+                type="button"
+                onClick={handleExportWord}
+                style={{
+                  background: 'rgba(255, 255, 255, 0.1)',
+                  color: '#ffffff',
+                  border: '1px solid rgba(255, 255, 255, 0.2)',
+                  padding: '0.55rem 0.95rem',
+                  borderRadius: '10px',
+                  fontWeight: 700,
+                  fontSize: '0.82rem',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '0.4rem',
+                  cursor: 'pointer'
+                }}
+              >
+                <Download size={16} /> Word (.doc)
+              </button>
+
+              <button
+                type="button"
+                onClick={handlePrintRoutine}
+                style={{
+                  background: 'rgba(255, 255, 255, 0.1)',
+                  color: '#ffffff',
+                  border: '1px solid rgba(255, 255, 255, 0.2)',
+                  padding: '0.55rem 0.95rem',
+                  borderRadius: '10px',
+                  fontWeight: 700,
+                  fontSize: '0.82rem',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '0.4rem',
+                  cursor: 'pointer'
+                }}
+              >
+                <Printer size={16} /> Print
+              </button>
+
+              <button
+                type="button"
+                onClick={handleSaveRoutineDraft}
+                disabled={isSavingRoutine}
+                style={{
+                  background: 'rgba(255, 255, 255, 0.1)',
+                  color: '#ffffff',
+                  border: '1px solid rgba(255, 255, 255, 0.2)',
+                  padding: '0.55rem 1rem',
+                  borderRadius: '10px',
+                  fontWeight: 700,
+                  fontSize: '0.82rem',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '0.4rem',
+                  cursor: 'pointer'
+                }}
+              >
+                <Save size={16} /> {isSavingRoutine ? 'Saving...' : 'Save Draft'}
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setIsPublishModalOpen(true)}
+                style={{
+                  background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
+                  color: '#ffffff',
+                  border: 'none',
+                  padding: '0.55rem 1.25rem',
+                  borderRadius: '10px',
+                  fontWeight: 800,
+                  fontSize: '0.84rem',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '0.45rem',
+                  cursor: 'pointer',
+                  boxShadow: '0 4px 15px rgba(16, 185, 129, 0.4)'
+                }}
+              >
+                <Send size={16} /> Publish Changes
+              </button>
+            </div>
+          </div>
+
+          {/* Builder Workspace Tab Bar */}
+          <div 
+            className="no-print"
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              background: '#ffffff',
+              padding: '0.5rem 0.75rem',
+              borderRadius: '12px',
+              border: '1px solid #e2e8f0',
+              boxShadow: '0 2px 8px rgba(0,0,0,0.03)'
+            }}
+          >
+            <div style={{ display: 'flex', gap: '0.4rem' }}>
+              <button
+                type="button"
+                onClick={() => setWorkspaceTab('TIMETABLE_GRID')}
+                style={{
+                  background: workspaceTab === 'TIMETABLE_GRID' ? '#6366f1' : 'transparent',
+                  color: workspaceTab === 'TIMETABLE_GRID' ? '#ffffff' : '#475569',
+                  border: 'none',
+                  padding: '0.55rem 1.15rem',
+                  borderRadius: '8px',
+                  fontWeight: 800,
+                  fontSize: '0.82rem',
+                  cursor: 'pointer',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '0.45rem',
+                  transition: 'all 0.15s'
+                }}
+              >
+                <Grid size={16} /> Official Timetable Grid (5 Days)
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setWorkspaceTab('COURSES')}
+                style={{
+                  background: workspaceTab === 'COURSES' ? '#6366f1' : 'transparent',
+                  color: workspaceTab === 'COURSES' ? '#ffffff' : '#475569',
+                  border: 'none',
+                  padding: '0.55rem 1.15rem',
+                  borderRadius: '8px',
+                  fontWeight: 800,
+                  fontSize: '0.82rem',
+                  cursor: 'pointer',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '0.45rem',
+                  transition: 'all 0.15s'
+                }}
+              >
+                <BookOpen size={16} /> Semester Courses & Teachers ({activeRoutine.semesters?.reduce((acc, s) => acc + (s.courses?.length || 0), 0) || 0})
+              </button>
+            </div>
+
+            {/* Quick action buttons on tab bar */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+              <button
+                type="button"
+                onClick={handleOpenAddSemesterModal}
+                style={{
+                  background: '#f8fafc',
+                  border: '1px solid #cbd5e1',
+                  color: '#334155',
+                  padding: '0.45rem 0.85rem',
+                  borderRadius: '8px',
+                  fontSize: '0.78rem',
+                  fontWeight: 700,
+                  cursor: 'pointer',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '0.35rem'
+                }}
+              >
+                <Plus size={14} /> Add Semester
+              </button>
+            </div>
+          </div>
+
+          {/* ========================================================================= */}
+          {/* TAB 1: SEMESTER COURSES & TEACHER MANAGEMENT */}
+          {/* ========================================================================= */}
+          {workspaceTab === 'COURSES' && (
+            <SemesterCourseManager 
+              semesters={activeRoutine.semesters || []}
+              activeSemesterIndex={selectedSemesterIndex}
+              selectedSemesterIndex={selectedSemesterIndex}
+              currentSchedule={activeRoutine.schedule || []}
+              onSelectSemester={setSelectedSemesterIndex}
+              onSelectSemesterIndex={setSelectedSemesterIndex}
+              onAddCourse={handleOpenAddCourseModal}
+              onOpenAddCourseModal={handleOpenAddCourseModal}
+              onEditCourse={handleOpenEditCourseModal}
+              onOpenEditCourseModal={handleOpenEditCourseModal}
+              onDeleteCourse={handleDeleteCourse}
+              onUpdateCourseStatus={handleToggleCourseStatus}
+              onToggleCourseStatus={handleToggleCourseStatus}
+              onToggleIncludeCourse={handleToggleCourseInRoutine}
+              onToggleCourseInRoutine={handleToggleCourseInRoutine}
+              onOpenTeacherModal={(arg1, arg2, arg3) => {
+                if (typeof arg1 === 'object' && arg1 !== null) {
+                  // (course, idx, semIdx)
+                  handleOpenTeacherModal(arg3 !== undefined ? arg3 : selectedSemesterIndex, arg2, arg1);
+                } else if (typeof arg3 === 'object' && arg3 !== null) {
+                  // (semIdx, idx, course)
+                  handleOpenTeacherModal(arg1, arg2, arg3);
+                } else if (typeof arg2 === 'object' && arg2 !== null) {
+                  // (idx, course)
+                  handleOpenTeacherModal(selectedSemesterIndex, arg1, arg2);
+                }
+              }}
+              onOpenCopySemesterModal={() => setIsCopySemesterModalOpen(true)}
+              onAddSemesterModalOpen={handleOpenAddSemesterModal}
+              onOpenStudentModal={() => setIsStudentModalOpen(true)}
+            />
+          )}
+
+          {/* ========================================================================= */}
+          {/* TAB 2: OFFICIAL 5-DAY TIMETABLE GRID */}
+          {/* ========================================================================= */}
+          {workspaceTab === 'TIMETABLE_GRID' && (
+            <div style={{
+              display: 'grid',
+              gridTemplateColumns: '320px 1fr',
+              gap: '1.25rem',
+              alignItems: 'start'
+            }}>
+              
+              {/* LEFT PANEL: Selected Semester Courses & Drag-and-Drop Source */}
+              <CourseDragPanel 
+                semesters={activeRoutine.semesters || []}
+                selectedSemesterIndex={selectedSemesterIndex}
+                onSelectSemesterIndex={setSelectedSemesterIndex}
+                onOpenAddSemesterModal={handleOpenAddSemesterModal}
+                onRemoveSemester={handleRemoveSemester}
+                onOpenTeacherModal={(semIdx, cIdx, course) => handleOpenTeacherModal(semIdx, cIdx, course)}
+                onOpenManualScheduleModal={(semId, courseId) => handleOpenManualScheduleModal(semId, courseId)}
+                currentSchedule={activeRoutine.schedule || []}
+                onDragStartCourse={handleCourseDragStart}
+              />
+
+              {/* RIGHT PANEL: Official Timetable Grid & Droppable Target */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', minWidth: 0 }}>
+                
+                {/* 1. Schedule Conflicts Banner (if any) */}
+                {entireConflicts.length > 0 && (
+                  <div 
+                    className="no-print" 
+                    style={{
+                      background: '#fef2f2',
+                      border: '1.5px solid #fecaca',
+                      borderRadius: '14px',
+                      padding: '0.85rem 1.25rem',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      boxShadow: '0 2px 8px rgba(239, 68, 68, 0.08)'
+                    }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                      <div style={{ background: '#fee2e2', borderRadius: '8px', padding: '6px', color: '#b91c1c' }}>
+                        <AlertTriangle size={20} />
+                      </div>
+                      <div>
+                        <div style={{ fontWeight: 800, fontSize: '0.88rem', color: '#991b1b' }}>
+                          {entireConflicts.length} Timetable Conflicts Detected!
+                        </div>
+                        <div style={{ fontSize: '0.75rem', color: '#b91c1c', marginTop: '0.1rem' }}>
+                          Overlapping teacher assignments or room double-bookings require resolution.
+                        </div>
+                      </div>
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={() => setIsConflictListModalOpen(true)}
+                      style={{
+                        background: '#ef4444',
+                        color: '#ffffff',
+                        border: 'none',
+                        padding: '0.45rem 0.95rem',
+                        borderRadius: '8px',
+                        fontSize: '0.78rem',
+                        fontWeight: 800,
+                        cursor: 'pointer'
+                      }}
+                    >
+                      View All ({entireConflicts.length})
+                    </button>
+                  </div>
+                )}
+
+                {/* Printable routine wrapper containing Header, Table Grid, and Footer */}
+                <div className="official-routine-print-wrapper">
+                  {/* 2. Official Institutional Header (Screen & Landscape Print) */}
+                  <div 
+                    className="official-routine-header"
+                  style={{
+                    textAlign: 'center',
+                    padding: '1rem 1.25rem',
+                    background: '#ffffff',
+                    borderRadius: '14px',
+                    border: '1.5px solid #cbd5e1',
+                    boxShadow: '0 2px 8px rgba(0, 0, 0, 0.03)'
+                  }}
+                >
+                  <h1 
+                    className="univ-title" 
+                    style={{ 
+                      margin: 0, 
+                      fontSize: '1.25rem', 
+                      fontWeight: 900, 
+                      color: '#0f172a', 
+                      textTransform: 'uppercase', 
+                      letterSpacing: '0.4px',
+                      lineHeight: 1.2
+                    }}
+                  >
+                    Pabna University of Science and Technology
+                  </h1>
+                  <h2 
+                    className="dept-title" 
+                    style={{ 
+                      margin: '3px 0 0', 
+                      fontSize: '1.02rem', 
+                      fontWeight: 800, 
+                      color: '#1e3a8a',
+                      lineHeight: 1.2
+                    }}
+                  >
+                    Department of Computer Science & Engineering
+                  </h2>
+                  <div 
+                    className="routine-meta" 
+                    style={{ 
+                      fontSize: '0.8rem', 
+                      color: '#334155', 
+                      fontWeight: 600, 
+                      marginTop: '5px' 
+                    }}
+                  >
+                    <strong>Class Routine:</strong> {activeRoutine.title} • <strong>Session:</strong> {activeRoutine.academicYear} • <strong>Effective Date:</strong> {activeRoutine.effectiveFrom || 'Current'}
+                  </div>
+                </div>
+
+                {/* 3. Timetable Grid Control Bar */}
+                <div 
+                  className="no-print" 
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    padding: '0.65rem 1rem',
+                    background: '#f8fafc',
+                    borderRadius: '10px',
+                    border: '1px solid #e2e8f0',
+                    flexWrap: 'wrap',
+                    gap: '0.5rem'
+                  }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.78rem', color: '#475569' }}>
+                    <span style={{ fontWeight: 800, color: '#0f172a' }}>
+                      Active Routine Semesters ({activeRoutine.semesters?.length || 0}):
+                    </span>
+                    <div style={{ display: 'flex', gap: '0.3rem', flexWrap: 'wrap' }}>
+                      {(activeRoutine.semesters || []).map((s, idx) => (
+                        <button
+                          key={s.semesterId || idx}
+                          type="button"
+                          onClick={() => setSelectedSemesterIndex(idx)}
+                          style={{
+                            padding: '2px 8px',
+                            borderRadius: '5px',
+                            fontSize: '0.7rem',
+                            fontWeight: 800,
+                            border: 'none',
+                            background: idx === selectedSemesterIndex ? '#4338ca' : '#e0e7ff',
+                            color: idx === selectedSemesterIndex ? '#ffffff' : '#3730a3',
+                            cursor: 'pointer',
+                            transition: 'all 0.15s'
+                          }}
+                        >
+                          {s.shortTerm || s.termCode}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                    <span style={{ fontSize: '0.72rem', color: '#64748b' }}>
+                      Drag cards from left panel or
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => handleOpenManualScheduleModal()}
+                      style={{
+                        background: 'linear-gradient(135deg, #6366f1 0%, #4f46e5 100%)',
+                        color: '#ffffff',
+                        border: 'none',
+                        padding: '0.45rem 0.95rem',
+                        borderRadius: '7px',
+                        fontSize: '0.76rem',
+                        fontWeight: 800,
+                        cursor: 'pointer',
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '0.35rem',
+                        boxShadow: '0 2px 8px rgba(99, 102, 241, 0.3)'
+                      }}
+                    >
+                      <Plus size={13} /> Add Class Manually
+                    </button>
+                  </div>
+                </div>
+
+                {/* 4. Timetable Schedule Grid Table (Official Structure) */}
+                <div 
+                  className="official-routine-print-container"
+                  style={{
+                    background: '#ffffff',
+                    borderRadius: '16px',
+                    border: '1.5px solid #cbd5e1',
+                    boxShadow: '0 4px 20px rgba(0,0,0,0.03)',
+                    overflow: 'hidden'
+                  }}
+                >
+                  <div className="official-table-scroll-wrapper" style={{ overflowX: 'auto' }}>
+                    <table 
+                      className="official-timetable-grid"
+                      style={{ 
+                        width: '100%', 
+                        borderCollapse: 'collapse', 
+                        minWidth: '940px', 
+                        fontSize: '0.8rem' 
+                      }}
+                    >
+                      <thead>
+                        <tr style={{ background: '#0f172a', color: '#ffffff', borderBottom: '2px solid #334155' }}>
+                          <th style={{ padding: '0.75rem 0.5rem', width: '85px', textAlign: 'center', fontSize: '0.78rem', fontWeight: 800, borderRight: '1px solid #334155' }}>
+                            Day
+                          </th>
+                          <th style={{ padding: '0.75rem 0.5rem', width: '65px', textAlign: 'center', fontSize: '0.78rem', fontWeight: 800, borderRight: '1.5px solid #334155' }}>
+                            Sem
+                          </th>
+                          {SCHEDULE_PERIODS.map(p => {
+                            if (p.isBreak) {
+                              return (
+                                <th 
+                                  key={p.id}
+                                  style={{
+                                    padding: '0.75rem 0.4rem',
+                                    width: '65px',
+                                    textAlign: 'center',
+                                    fontSize: '0.72rem',
+                                    fontWeight: 800,
+                                    background: '#1e293b',
+                                    color: '#f59e0b',
+                                    borderLeft: '1.5px solid #475569',
+                                    borderRight: '1.5px solid #475569'
+                                  }}
+                                >
+                                  <div>BREAK</div>
+                                  <div style={{ fontSize: '0.64rem', fontWeight: 600, opacity: 0.9 }}>
+                                    {p.startTime}-{p.endTime}
+                                  </div>
+                                </th>
+                              );
+                            }
+                            return (
+                              <th 
+                                key={p.id}
+                                style={{
+                                  padding: '0.65rem 0.35rem',
+                                  textAlign: 'center',
+                                  fontSize: '0.75rem',
+                                  fontWeight: 800,
+                                  borderRight: '1px solid #334155'
+                                }}
+                              >
+                                <div style={{ color: '#e2e8f0' }}>{p.label}</div>
+                                <div style={{ fontSize: '0.66rem', fontWeight: 600, color: '#94a3b8' }}>
+                                  {p.startTime} - {p.endTime}
+                                </div>
+                              </th>
+                            );
+                          })}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {SCHEDULE_DAYS.map(dayObj => {
+                          const semesters = activeRoutine.semesters || [];
+                          if (semesters.length === 0) {
+                            return (
+                              <tr key={dayObj.name} style={{ borderBottom: '1px solid #e2e8f0' }}>
+                                <td style={{ padding: '1rem', fontWeight: 800, background: '#f8fafc', textAlign: 'center', borderRight: '1px solid #e2e8f0' }}>
+                                  {dayObj.name}
+                                </td>
+                                <td colSpan={SCHEDULE_PERIODS.length + 1} style={{ padding: '1rem', textAlign: 'center', color: '#94a3b8', fontStyle: 'italic' }}>
+                                  No semesters added. Click "Add Semester" on the left panel.
+                                </td>
+                              </tr>
+                            );
+                          }
+
+                          return semesters.map((sem, semIdx) => {
+                            const isLastSemOfDay = semIdx === semesters.length - 1;
+
+                            return (
+                              <tr 
+                                key={`${dayObj.name}-${sem.semesterId}`}
+                                style={{
+                                  borderBottom: isLastSemOfDay ? '2.5px solid #94a3b8' : '1px solid #e2e8f0',
+                                  background: semIdx % 2 === 0 ? '#ffffff' : '#fafbfc'
+                                }}
+                              >
+                                {/* Day Column (rowspan for all semesters) */}
+                                {semIdx === 0 && (
+                                  <td 
+                                    rowSpan={semesters.length}
+                                    style={{
+                                      padding: '0.75rem 0.5rem',
+                                      fontWeight: 900,
+                                      textAlign: 'center',
+                                      background: '#f1f5f9',
+                                      color: '#0f172a',
+                                      borderRight: '2px solid #cbd5e1',
+                                      verticalAlign: 'middle',
+                                      fontSize: '0.85rem'
+                                    }}
+                                  >
+                                    <div style={{ fontWeight: 900 }}>
+                                      {dayObj.name}
+                                    </div>
+                                  </td>
+                                )}
+
+                                {/* Semester Identifier Column */}
+                                <td 
+                                  style={{
+                                    padding: '0.5rem 0.35rem',
+                                    textAlign: 'center',
+                                    fontWeight: 800,
+                                    color: '#3730a3',
+                                    background: '#e0e7ff',
+                                    borderRight: '1.5px solid #cbd5e1',
+                                    verticalAlign: 'middle',
+                                    fontSize: '0.78rem'
+                                  }}
+                                >
+                                  {sem.shortTerm || sem.termCode}
+                                </td>
+
+                                {/* Period Columns */}
+                                {SCHEDULE_PERIODS.map(period => {
+                                  if (period.isBreak) {
+                                    if (semIdx === 0) {
+                                      return (
+                                        <td 
+                                          key={`break-${dayObj.name}`}
+                                          rowSpan={semesters.length}
+                                          style={{
+                                            background: '#fef3c7',
+                                            borderLeft: '1.5px solid #cbd5e1',
+                                            borderRight: '1.5px solid #cbd5e1',
+                                            textAlign: 'center',
+                                            verticalAlign: 'middle',
+                                            color: '#92400e',
+                                            fontWeight: 800,
+                                            fontSize: '0.72rem',
+                                            letterSpacing: '1px',
+                                            padding: '0.4rem 0.2rem',
+                                            userSelect: 'none'
+                                          }}
+                                        >
+                                          <div style={{ writingMode: 'vertical-rl', textOrientation: 'mixed', margin: '0 auto' }}>
+                                            BREAK (01:00 - 02:00)
+                                          </div>
+                                        </td>
+                                      );
+                                    }
+                                    return null;
+                                  }
+
+                                  const slotStartingHere = mergedDisplaySchedule.find(s => 
+                                    s.day === dayObj.name && 
+                                    s.semesterId === sem.semesterId && 
+                                    s.periodId === period.id
+                                  );
+
+                                  const slotCoveringEarlier = mergedDisplaySchedule.find(s => 
+                                    s.day === dayObj.name && 
+                                    s.semesterId === sem.semesterId && 
+                                    s.periodId !== period.id && 
+                                    (s.coveredPeriods || getCoveredPeriodIds(s.periodId, s.span || 1))?.includes(period.id)
+                                  );
+
+                                  if (slotCoveringEarlier) {
+                                    return null;
+                                  }
+
+                                  const isCellDragTarget = 
+                                    dragOverCell?.day === dayObj.name && 
+                                    dragOverCell?.semesterId === sem.semesterId && 
+                                    dragOverCell?.periodId === period.id;
+
+                                  if (slotStartingHere) {
+                                    const span = slotStartingHere.span || 1;
+                                    const isConflicted = entireConflicts.some(cf => cf.slotIds?.includes(slotStartingHere.id));
+                                    const isSessional = slotStartingHere.courseType === 'Sessional' || span >= 3;
+                                    const isLocked = Boolean(slotStartingHere.isLocked);
+
+                                    return (
+                                      <td 
+                                        key={`slot-${slotStartingHere.id}`}
+                                        colSpan={span}
+                                        onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; }}
+                                        onDragEnter={(e) => { e.preventDefault(); setDragOverCell({ day: dayObj.name, semesterId: sem.semesterId, periodId: period.id }); }}
+                                        onDragLeave={() => setDragOverCell(null)}
+                                        onDrop={(e) => handleCellDrop(e, dayObj.name, sem.semesterId, period.id)}
+                                        style={{
+                                          padding: '0.35rem 0.4rem',
+                                          verticalAlign: 'middle',
+                                          borderRight: '1px solid #e2e8f0',
+                                          borderLeft: isConflicted ? '2.5px solid #ef4444' : isLocked ? '2.5px solid #f59e0b' : 'none',
+                                          background: isCellDragTarget 
+                                            ? '#e0e7ff' 
+                                            : isConflicted 
+                                              ? '#fee2e2' 
+                                              : isLocked
+                                                ? '#fffbeb'
+                                                : isSessional 
+                                                  ? '#f3e8ff' 
+                                                  : span === 2 
+                                                    ? '#eff6ff' 
+                                                    : '#f8fafc'
+                                        }}
+                                      >
+                                        <div 
+                                          draggable={!isLocked}
+                                          onDragStart={(e) => handleSlotDragStart(e, slotStartingHere)}
+                                          onDragEnd={() => { setDraggedItem(null); setDragOverCell(null); }}
+                                          title={isLocked ? "Slot locked from editing" : "Drag to move slot to another day/time"}
+                                          style={{
+                                            padding: '0.4rem 0.5rem',
+                                            borderRadius: '8px',
+                                            background: isConflicted ? '#fecaca' : '#ffffff',
+                                            border: isConflicted ? '1.5px solid #dc2626' : isLocked ? '1.5px solid #f59e0b' : '1px solid #cbd5e1',
+                                            boxShadow: '0 1px 4px rgba(0,0,0,0.04)',
+                                            position: 'relative',
+                                            cursor: isLocked ? 'default' : 'grab'
+                                          }}
+                                        >
+                                          {/* Top row: Course Code & Room */}
+                                          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.25rem' }}>
+                                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
+                                              <strong className="course-code-print" style={{ 
+                                                color: isConflicted ? '#991b1b' : '#0f172a', 
+                                                fontSize: '0.82rem',
+                                                letterSpacing: '0.3px'
+                                              }}>
+                                                {slotStartingHere.courseCode}
+                                              </strong>
+                                              {isLocked && (
+                                                <span title="Locked Slot: Preserves position during auto-scheduling" style={{ color: '#d97706', display: 'inline-flex' }}>
+                                                  <Lock size={12} />
+                                                </span>
+                                              )}
+                                            </div>
+                                            
+                                            <span style={{
+                                              background: isConflicted ? '#f87171' : isLocked ? '#f59e0b' : '#334155',
+                                              color: '#ffffff',
+                                              borderRadius: '4px',
+                                              padding: '0.1rem 0.35rem',
+                                              fontSize: '0.65rem',
+                                              fontWeight: 800
+                                            }}>
+                                              {slotStartingHere.room || '501'}
+                                            </span>
+                                          </div>
+
+                                          {/* Middle row: Teacher Short Code / Name */}
+                                          <div style={{ 
+                                            fontSize: '0.72rem', 
+                                            fontWeight: 700, 
+                                            color: isConflicted ? '#b91c1c' : (!slotStartingHere.teacherName || slotStartingHere.teacherName === 'Not Assigned' ? '#d97706' : '#4338ca'),
+                                            marginTop: '0.2rem',
+                                            whiteSpace: 'nowrap',
+                                            overflow: 'hidden',
+                                            textOverflow: 'ellipsis'
+                                          }}>
+                                            {slotStartingHere.teacherShortCode ? (
+                                              slotStartingHere.teacherShortCode
+                                            ) : slotStartingHere.teacherName && slotStartingHere.teacherName !== 'Not Assigned' ? (
+                                              slotStartingHere.teacherName
+                                            ) : (
+                                              <span style={{ 
+                                                display: 'inline-block', 
+                                                background: '#fef3c7', 
+                                                color: '#b45309', 
+                                                padding: '1px 5px', 
+                                                borderRadius: '4px',
+                                                fontSize: '0.68rem',
+                                                fontWeight: 800
+                                              }}>
+                                                Pending Teacher
+                                              </span>
+                                            )}
+                                          </div>
+
+                                          {/* Bottom row: Span info & quick edit/delete/lock */}
+                                          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: '0.3rem' }}>
+                                            <span style={{ 
+                                              fontSize: '0.62rem', 
+                                              fontWeight: 700, 
+                                              color: isSessional ? '#7e22ce' : '#64748b' 
+                                            }}>
+                                              {span === 3 ? 'Lab (3h)' : span === 2 ? 'Theory (2h)' : '1h'}
+                                            </span>
+
+                                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.2rem' }}>
+                                              {/* Lock / Unlock Toggle Button */}
+                                              <button
+                                                type="button"
+                                                title={isLocked ? "Unlock Slot" : "Lock Slot"}
+                                                onClick={(e) => {
+                                                  e.stopPropagation();
+                                                  handleToggleLockSlot(slotStartingHere.id);
+                                                }}
+                                                style={{
+                                                  background: isLocked ? '#fef3c7' : 'none',
+                                                  border: isLocked ? '1px solid #f59e0b' : 'none',
+                                                  borderRadius: '4px',
+                                                  padding: '2px',
+                                                  cursor: 'pointer',
+                                                  color: isLocked ? '#d97706' : '#94a3b8'
+                                                }}
+                                              >
+                                                {isLocked ? <Lock size={12} /> : <Unlock size={12} />}
+                                              </button>
+
+                                              <button
+                                                type="button"
+                                                title="Edit slot details"
+                                                onClick={(e) => {
+                                                  e.stopPropagation();
+                                                  handleOpenEditSlotModal(slotStartingHere);
+                                                }}
+                                                style={{
+                                                  background: 'none',
+                                                  border: 'none',
+                                                  padding: '2px',
+                                                  cursor: 'pointer',
+                                                  color: '#6366f1'
+                                                }}
+                                              >
+                                                <Edit3 size={12} />
+                                              </button>
+                                              
+                                              <button
+                                                type="button"
+                                                title="Remove slot"
+                                                onClick={(e) => {
+                                                  e.stopPropagation();
+                                                  handleDeleteSlot(slotStartingHere.id);
+                                                }}
+                                                style={{
+                                                  background: 'none',
+                                                  border: 'none',
+                                                  padding: '2px',
+                                                  cursor: 'pointer',
+                                                  color: '#ef4444'
+                                                }}
+                                              >
+                                                <Trash2 size={12} />
+                                              </button>
+                                            </div>
+                                          </div>
+                                        </div>
+                                      </td>
+                                    );
+                                  }
+
+                                  // Empty Slot Cell (Drop Target)
+                                  return (
+                                    <td 
+                                      key={`empty-${dayObj.name}-${sem.semesterId}-${period.id}`}
+                                      onClick={() => handleOpenAddSlotModal(dayObj.name, sem.semesterId, period.id)}
+                                      onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; }}
+                                      onDragEnter={(e) => { e.preventDefault(); setDragOverCell({ day: dayObj.name, semesterId: sem.semesterId, periodId: period.id }); }}
+                                      onDragLeave={() => setDragOverCell(null)}
+                                      onDrop={(e) => handleCellDrop(e, dayObj.name, sem.semesterId, period.id)}
+                                      title={`Drag a course here or click to schedule on ${dayObj.name} (${period.label}) for ${sem.shortTerm || sem.termCode}`}
+                                      style={{
+                                        padding: '0.4rem',
+                                        textAlign: 'center',
+                                        borderRight: '1px solid #e2e8f0',
+                                        cursor: 'pointer',
+                                        transition: 'all 0.15s',
+                                        background: isCellDragTarget ? '#e0e7ff' : 'transparent',
+                                        outline: isCellDragTarget ? '2px dashed #6366f1' : 'none'
+                                      }}
+                                      onMouseEnter={(e) => {
+                                        if (!dragOverCell) e.currentTarget.style.background = '#f1f5f9';
+                                      }}
+                                      onMouseLeave={(e) => {
+                                        if (!dragOverCell) e.currentTarget.style.background = 'transparent';
+                                      }}
+                                    >
+                                      <span style={{ 
+                                        color: isCellDragTarget ? '#4f46e5' : '#cbd5e1', 
+                                        fontSize: '0.85rem', 
+                                        fontWeight: isCellDragTarget ? 800 : 400,
+                                        userSelect: 'none' 
+                                      }}>
+                                        +
+                                      </span>
+                                    </td>
+                                  );
+                                })}
+                              </tr>
+                            );
+                          });
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+
+                {/* 5. Official Timetable Footer & Chairman's Signature Block */}
+                <div 
+                  className="official-routine-footer"
+                  style={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'flex-end',
+                    marginTop: '1.25rem',
+                    padding: '1.25rem 1.5rem',
+                    background: '#ffffff',
+                    borderRadius: '14px',
+                    border: '1.5px solid #cbd5e1',
+                    boxShadow: '0 2px 8px rgba(0,0,0,0.02)'
+                  }}
+                >
+                  {/* Academic Notes */}
+                  <div style={{ maxWidth: '480px', fontSize: '0.74rem', color: '#64748b', lineHeight: 1.5 }}>
+                    <div style={{ fontWeight: 800, color: '#0f172a', marginBottom: '4px' }}>
+                      Official Academic Notes & Timetable Rules:
+                    </div>
+                    <div>1. Class duration is 1 hour per period for Theory courses and 3 consecutive hours for Lab/Sessional blocks.</div>
+                    <div>2. Protected Break is observed daily across all semesters from 01:00 PM to 02:00 PM (No classes scheduled).</div>
+                    <div>3. This official departmental routine has been prepared and published for university circulation and notice boards.</div>
+                  </div>
+
+                  {/* Chairman Signature Area (Bottom-Right Corner) */}
+                  <div 
+                    className="chairman-signature-block"
+                    style={{
+                      textAlign: 'center',
+                      minWidth: '280px',
+                      padding: '0.5rem 1rem'
+                    }}
+                  >
+                    <div style={{ height: '55px' }}>
+                      {/* Blank whitespace for authentic handwritten signature */}
+                    </div>
+                    <div style={{ 
+                      borderTop: '1.5px solid #0f172a', 
+                      paddingTop: '6px', 
+                      fontWeight: 900, 
+                      fontSize: '0.88rem', 
+                      color: '#0f172a' 
+                    }}>
+                      Chairman
+                    </div>
+                    <div style={{ fontSize: '0.78rem', color: '#1e3a8a', fontWeight: 700, marginTop: '2px' }}>
+                      Department of Computer Science and Engineering
+                    </div>
+                    <div style={{ fontSize: '0.75rem', color: '#475569' }}>
+                      Pabna University of Science and Technology
+                    </div>
+                  </div>
+                </div>
+              </div>
+
             </div>
           </div>
         )}
-      </div>
 
-      {/* VIEW CONDITIONAL: Builder Form vs Generated Routine Preview */}
-      {!isGenerated ? (
-        /* BUILDER FORM */
-        <div>
-          {routineMode === 'CLASS_ROUTINE' ? (
-            /* CLASS ROUTINE BUILDER */
-            <div>
-              {/* Theory Courses Section */}
-              <div style={{ marginBottom: '2rem' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '1rem' }}>
-                  <BookOpen size={20} color="#2563eb" />
-                  <h3 style={{ fontSize: '1.2rem', fontWeight: 800, color: '#0f172a', margin: 0 }}>
-                    Theory Courses ({theoryCourses.length})
-                  </h3>
-                </div>
+        </div>
+      )}
 
-                {loadingCourses ? (
-                  <div style={{ padding: '2rem', textAlign: 'center', color: '#64748b' }}>
-                    <RefreshCw size={24} className="spin" />
-                    <p style={{ marginTop: '0.5rem', fontSize: '0.9rem' }}>Loading courses for {activeSemesterObj?.semester_name}...</p>
-                  </div>
-                ) : theoryCourses.length === 0 ? (
-                  <div className="card" style={{ padding: '2rem', textAlign: 'center', color: '#94a3b8' }}>
-                    No theory courses found in this semester.
-                  </div>
-                ) : (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
-                    {configuredCourses.map((course, idx) => {
-                      if (course.courseType === 'LAB') return null;
-                      const busySlots = getTeacherBusyList(course.teacherId, course.teacherName);
+      {/* ========================================================================= */}
+      {/* MODALS INTEGRATION */}
+      {/* ========================================================================= */}
 
-                      return (
-                        <div key={course.courseId} className="card" style={{ padding: '1.25rem 1.5rem', borderLeft: '4px solid #2563eb' }}>
-                          {/* Course Header */}
-                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '0.75rem', marginBottom: '1rem' }}>
-                            <div>
-                              <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
-                                <span style={{
-                                  fontSize: '0.85rem',
-                                  fontWeight: 800,
-                                  background: '#2563eb',
-                                  color: '#ffffff',
-                                  padding: '0.2rem 0.6rem',
-                                  borderRadius: '6px'
-                                }}>
-                                  {course.courseCode}
-                                </span>
-                                <h4 style={{ fontSize: '1.05rem', fontWeight: 800, color: '#0f172a', margin: 0 }}>
-                                  {course.courseTitle}
-                                </h4>
-                              </div>
-                              <div style={{ fontSize: '0.8rem', color: '#64748b', marginTop: '0.25rem' }}>
-                                Contact Credit Hours: <strong>{course.creditHours} Credits</strong> (Recommended {course.creditHours} periods/week)
-                              </div>
-                            </div>
+      {/* 0. MANUAL SCHEDULE MODAL */}
+      <ManualScheduleModal 
+        isOpen={isManualScheduleModalOpen}
+        onClose={() => setIsManualScheduleModalOpen(false)}
+        semesters={activeRoutine?.semesters || []}
+        currentSchedule={activeRoutine?.schedule || []}
+        initialSemesterId={manualScheduleInitialSemId}
+        initialCourseId={manualScheduleInitialCourseId}
+        onSaveSlot={handleSaveManualSlot}
+      />
 
-                            {/* Room Selector */}
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                              <MapPin size={16} color="#64748b" />
-                              <span style={{ fontSize: '0.8rem', fontWeight: 700, color: '#475569' }}>Room:</span>
-                              <input
-                                type="text"
-                                value={course.roomNumber}
-                                onChange={(e) => {
-                                  const val = e.target.value;
-                                  setConfiguredCourses(prev => {
-                                    const copy = [...prev];
-                                    copy[idx] = { ...copy[idx], roomNumber: val };
-                                    return copy;
-                                  });
-                                }}
-                                style={{
-                                  padding: '0.35rem 0.7rem',
-                                  borderRadius: '6px',
-                                  border: '1px solid #cbd5e1',
-                                  fontSize: '0.85rem',
-                                  fontWeight: 600,
-                                  width: '120px'
-                                }}
-                              />
-                            </div>
-                          </div>
+      {/* 1. AUTO SCHEDULE MODAL */}
+      <AutoScheduleModal 
+        isOpen={isAutoScheduleModalOpen}
+        onClose={() => setIsAutoScheduleModalOpen(false)}
+        activeRoutine={activeRoutine}
+        semesters={activeRoutine?.semesters || []}
+        currentSchedule={activeRoutine?.schedule || []}
+        onApplySchedule={handleApplyAutoSchedule}
+        onApplyGeneratedSchedule={handleApplyAutoSchedule}
+      />
 
-                          {/* Teacher Assignment & Auto-fill Contact Info */}
-                          <div style={{
-                            background: '#f8fafc',
-                            borderRadius: '12px',
-                            padding: '1rem',
-                            border: '1px solid #e2e8f0',
-                            marginBottom: '1rem'
-                          }}>
-                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '1rem', alignItems: 'flex-end' }}>
-                              {/* Teacher Selector */}
-                              <div>
-                                <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 800, color: '#334155', marginBottom: '0.35rem' }}>
-                                  Course Teacher:
-                                </label>
-                                <select
-                                  value={course.teacherType === 'EXTERNAL' ? 'EXTERNAL' : course.teacherId}
-                                  onChange={(e) => handleTeacherChange(idx, e.target.value)}
-                                  style={{
-                                    width: '100%',
-                                    padding: '0.55rem 0.8rem',
-                                    borderRadius: '8px',
-                                    border: '1.5px solid #cbd5e1',
-                                    fontSize: '0.85rem',
-                                    fontWeight: 700,
-                                    color: '#0f172a'
-                                  }}
-                                >
-                                  <optgroup label="CSE Department Faculty (Auto-fills Profile & Contact)">
-                                    {teachers.map(t => (
-                                      <option key={t.teacher_id} value={t.teacher_id}>
-                                        {t.first_name} {t.last_name} ({t.designation})
-                                      </option>
-                                    ))}
-                                  </optgroup>
-                                  <optgroup label="Other / Guest Faculty">
-                                    <option value="EXTERNAL">+ External / Other Department Teacher</option>
-                                  </optgroup>
-                                </select>
-                              </div>
+      {/* 2. PUBLISH SUMMARY MODAL */}
+      <PublishSummaryModal 
+        isOpen={isPublishModalOpen}
+        onClose={() => setIsPublishModalOpen(false)}
+        onConfirmPublish={handleConfirmPublish}
+        currentRoutine={activeRoutine}
+        originalRoutine={originalRoutine}
+        isPublishing={isPublishing}
+      />
 
-                              {/* Teacher Name (if external) */}
-                              {course.teacherType === 'EXTERNAL' && (
-                                <div>
-                                  <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 800, color: '#334155', marginBottom: '0.35rem' }}>
-                                    Teacher Name:
-                                  </label>
-                                  <input
-                                    type="text"
-                                    value={course.teacherName}
-                                    onChange={(e) => {
-                                      const val = e.target.value;
-                                      setConfiguredCourses(prev => {
-                                        const copy = [...prev];
-                                        copy[idx] = { ...copy[idx], teacherName: val };
-                                        return copy;
-                                      });
-                                    }}
-                                    placeholder="e.g., Dr. Jane Doe"
-                                    style={{
-                                      width: '100%',
-                                      padding: '0.55rem 0.8rem',
-                                      borderRadius: '8px',
-                                      border: '1.5px solid #cbd5e1',
-                                      fontSize: '0.85rem',
-                                      fontWeight: 600
-                                    }}
-                                  />
-                                </div>
-                              )}
+      {/* 3. ROUTINE HISTORY MODAL */}
+      <RoutineHistoryModal 
+        isOpen={isHistoryModalOpen}
+        onClose={() => setIsHistoryModalOpen(false)}
+        routineId={activeRoutine?.id}
+        currentRoutine={activeRoutine}
+        onRestoreVersion={handleRestoreVersion}
+        onExportWord={handleExportWord}
+      />
 
-                              {/* Department */}
-                              <div>
-                                <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 800, color: '#334155', marginBottom: '0.35rem' }}>
-                                  Department:
-                                </label>
-                                <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-                                  <input
-                                    type="text"
-                                    value={course.teacherDept}
-                                    onChange={(e) => {
-                                      const val = e.target.value;
-                                      setConfiguredCourses(prev => {
-                                        const copy = [...prev];
-                                        copy[idx] = { ...copy[idx], teacherDept: val };
-                                        return copy;
-                                      });
-                                    }}
-                                    style={{
-                                      width: '100%',
-                                      padding: '0.55rem 0.8rem',
-                                      borderRadius: '8px',
-                                      border: '1.5px solid #cbd5e1',
-                                      fontSize: '0.85rem',
-                                      fontWeight: 600
-                                    }}
-                                  />
-                                  {course.teacherType === 'CSE' && (
-                                    <span style={{ fontSize: '0.7rem', fontWeight: 800, background: '#dcfce7', color: '#166534', padding: '0.2rem 0.4rem', borderRadius: '4px', whiteSpace: 'nowrap' }}>
-                                      CSE FACULTY
-                                    </span>
-                                  )}
-                                </div>
-                              </div>
+      {/* 4. COURSE FORM MODAL */}
+      <CourseFormModal 
+        isOpen={isCourseFormModalOpen}
+        onClose={() => {
+          setIsCourseFormModalOpen(false);
+          setEditingCourseTarget(null);
+        }}
+        onSaveCourse={handleSaveCourse}
+        editingCourse={editingCourseTarget}
+        semesterName={activeSemester?.semesterName}
+      />
 
-                              {/* Teacher Phone Number (Auto-filled from profile!) */}
-                              <div>
-                                <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 800, color: '#334155', marginBottom: '0.35rem' }}>
-                                  Teacher Phone Number:
-                                </label>
-                                <div style={{ position: 'relative' }}>
-                                  <input
-                                    type="text"
-                                    value={course.teacherPhone}
-                                    onChange={(e) => {
-                                      const val = e.target.value;
-                                      setConfiguredCourses(prev => {
-                                        const copy = [...prev];
-                                        copy[idx] = { ...copy[idx], teacherPhone: val };
-                                        return copy;
-                                      });
-                                    }}
-                                    placeholder="+8801700000000"
-                                    style={{
-                                      width: '100%',
-                                      padding: '0.55rem 0.8rem 0.55rem 2.2rem',
-                                      borderRadius: '8px',
-                                      border: course.teacherPhone ? '1.5px solid #10b981' : '1.5px solid #cbd5e1',
-                                      fontSize: '0.85rem',
-                                      fontWeight: 700,
-                                      color: '#0f172a'
-                                    }}
-                                  />
-                                  <Phone size={14} style={{ position: 'absolute', left: '10px', top: '12px', color: '#10b981' }} />
-                                </div>
-                              </div>
-                            </div>
+      {/* 5. COPY SEMESTER MODAL */}
+      <CopySemesterModal 
+        isOpen={isCopySemesterModalOpen}
+        onClose={() => setIsCopySemesterModalOpen(false)}
+        onConfirmCopy={handleConfirmCopySemester}
+        currentSemester={activeSemester}
+        availableSemesters={activeRoutine?.semesters || []}
+      />
 
-                            {/* Auto-fill notification badge */}
-                            {course.teacherType === 'CSE' && (
-                              <div style={{ marginTop: '0.6rem', fontSize: '0.75rem', color: '#059669', display: 'flex', alignItems: 'center', gap: '0.4rem', fontWeight: 700 }}>
-                                <Check size={14} />
-                                <span>Verified CSE Teacher profile detected &bull; Phone number & department auto-filled directly from university records</span>
-                              </div>
-                            )}
+      {/* 6. TEACHER ASSIGNMENT MODAL */}
+      {teacherModalState && (
+        <TeacherAssignmentModal 
+          isOpen={Boolean(teacherModalState)}
+          onClose={() => setTeacherModalState(null)}
+          course={teacherModalState.course}
+          targetCourse={teacherModalState.course}
+          initialTeacher={teacherModalState.initialTeacher}
+          deptTeachers={deptTeachers}
+          onSaveAssignment={handleSaveTeacherAssignment}
+          onSaveTeacherAssignment={handleSaveTeacherAssignment}
+        />
+      )}
 
-                            {/* Cross-session teacher busy slots warning */}
-                            {busySlots.length > 0 && (
-                              <div style={{
-                                marginTop: '0.65rem',
-                                padding: '0.5rem 0.75rem',
-                                background: '#fef2f2',
-                                border: '1px solid #fecaca',
-                                borderRadius: '8px',
-                                fontSize: '0.75rem',
-                                color: '#991b1b'
-                              }}>
-                                <strong>⚠️ Active Commitments in Other Sessions (Website Data):</strong>
-                                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', marginTop: '0.25rem' }}>
-                                  {busySlots.map((b, bIdx) => (
-                                    <span key={bIdx} style={{ background: '#fee2e2', padding: '0.15rem 0.5rem', borderRadius: '4px', fontWeight: 600 }}>
-                                      {b.sessionName}: {b.courseCode} ({b.day} {b.timeSlot})
-                                    </span>
-                                  ))}
-                                </div>
-                              </div>
-                            )}
-                          </div>
-
-                          {/* Time Slots Selector (Day & Period Chips) */}
-                          <div>
-                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.5rem' }}>
-                              <label style={{ fontSize: '0.8rem', fontWeight: 800, color: '#334155', textTransform: 'uppercase' }}>
-                                Assign Class Timings (Click to Toggle Days & Periods):
-                              </label>
-                              <span style={{ fontSize: '0.75rem', color: '#64748b' }}>
-                                {course.timeSlots?.length || 0} slot(s) selected
-                              </span>
-                            </div>
-
-                            {/* Weekday Grid with Period Pills */}
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-                              {weekdays.map(day => (
-                                <div key={day} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
-                                  <span style={{ width: '85px', fontSize: '0.8rem', fontWeight: 800, color: '#475569' }}>
-                                    {day}:
-                                  </span>
-                                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.35rem' }}>
-                                    {standardPeriods.map(p => {
-                                      const isSelected = course.timeSlots?.some(s => s.day === day && s.timeSlot === p);
-                                      const isBusyElsewhere = busySlots.some(b => b.day === day && b.timeSlot === p);
-
-                                      return (
-                                        <button
-                                          key={p}
-                                          type="button"
-                                          onClick={() => handleAddSlot(idx, day, p)}
-                                          style={{
-                                            border: '1px solid',
-                                            borderColor: isSelected ? '#2563eb' : (isBusyElsewhere ? '#fca5a5' : '#e2e8f0'),
-                                            background: isSelected ? '#2563eb' : (isBusyElsewhere ? '#fff1f2' : '#ffffff'),
-                                            color: isSelected ? '#ffffff' : (isBusyElsewhere ? '#be123c' : '#334155'),
-                                            padding: '0.25rem 0.55rem',
-                                            borderRadius: '6px',
-                                            fontSize: '0.75rem',
-                                            fontWeight: isSelected ? 700 : 500,
-                                            cursor: 'pointer',
-                                            transition: 'all 0.15s ease'
-                                          }}
-                                          title={isBusyElsewhere ? 'Sir is busy in another session at this time!' : `Toggle ${day} ${p}`}
-                                        >
-                                          {p.split(' - ')[0]}
-                                          {isBusyElsewhere && ' ⚠️'}
-                                        </button>
-                                      );
-                                    })}
-                                  </div>
-                                </div>
-                              ))}
-                            </div>
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
+      {/* 7. CREATE NEW ROUTINE MODAL */}
+      {isCreateModalOpen && (
+        <div 
+          className="modal-backdrop-custom"
+          style={{
+            position: 'fixed',
+            inset: 0,
+            zIndex: 1000,
+            backgroundColor: 'rgba(15, 23, 42, 0.75)',
+            backdropFilter: 'blur(6px)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: '1.25rem'
+          }}
+        >
+          <div 
+            style={{
+              background: '#ffffff',
+              borderRadius: '20px',
+              maxWidth: '520px',
+              width: '100%',
+              overflow: 'hidden',
+              border: '1px solid #e2e8f0',
+              boxShadow: '0 25px 50px -12px rgba(0,0,0,0.35)',
+              animation: 'fadeInUp 0.25s ease-out'
+            }}
+          >
+            <div style={{
+              padding: '1.25rem 1.5rem',
+              background: 'linear-gradient(135deg, #09101d 0%, #1e1b4b 100%)',
+              color: '#ffffff',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between'
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                <PlusCircle size={22} color="#6366f1" />
+                <h3 style={{ margin: 0, fontSize: '1.2rem', fontWeight: 800 }}>Create New Routine</h3>
               </div>
-
-              {/* Lab & Sessional Courses Section */}
-              <div style={{ marginBottom: '2.5rem' }}>
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1rem' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                    <FlaskConical size={20} color="#7c3aed" />
-                    <h3 style={{ fontSize: '1.2rem', fontWeight: 800, color: '#0f172a', margin: 0 }}>
-                      Lab & Sessional Courses ({labCourses.length})
-                    </h3>
-                    <span style={{ fontSize: '0.7rem', fontWeight: 800, background: '#7c3aed', color: '#ffffff', padding: '0.15rem 0.5rem', borderRadius: '6px' }}>
-                      PRACTICAL
-                    </span>
-                  </div>
-                  <span style={{ fontSize: '0.8rem', color: '#64748b' }}>
-                    Lab title, serial number, and 2-3 hour block selection
-                  </span>
-                </div>
-
-                {labCourses.length === 0 ? (
-                  <div className="card" style={{ padding: '2rem', textAlign: 'center', color: '#94a3b8' }}>
-                    No lab / sessional courses detected in this semester.
-                  </div>
-                ) : (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
-                    {configuredCourses.map((course, idx) => {
-                      if (course.courseType !== 'LAB') return null;
-
-                      return (
-                        <div key={course.courseId} className="card" style={{ padding: '1.25rem 1.5rem', borderLeft: '4px solid #7c3aed' }}>
-                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '0.75rem', marginBottom: '1rem' }}>
-                            <div>
-                              <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
-                                <span style={{
-                                  fontSize: '0.85rem',
-                                  fontWeight: 800,
-                                  background: '#7c3aed',
-                                  color: '#ffffff',
-                                  padding: '0.2rem 0.6rem',
-                                  borderRadius: '6px'
-                                }}>
-                                  {course.courseCode}
-                                </span>
-                                <h4 style={{ fontSize: '1.05rem', fontWeight: 800, color: '#0f172a', margin: 0 }}>
-                                  {course.courseTitle}
-                                </h4>
-                                <span style={{ fontSize: '0.7rem', fontWeight: 800, background: '#ede9fe', color: '#6d28d9', padding: '0.2rem 0.5rem', borderRadius: '6px' }}>
-                                  LAB / SESSIONAL
-                                </span>
-                              </div>
-                            </div>
-                          </div>
-
-                          {/* Lab Title, Serial & Room Inputs */}
-                          <div style={{
-                            display: 'grid',
-                            gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
-                            gap: '1rem',
-                            marginBottom: '1rem',
-                            background: '#faf5ff',
-                            padding: '1rem',
-                            borderRadius: '12px',
-                            border: '1px solid #f3e8ff'
-                          }}>
-                            {/* Lab Title */}
-                            <div>
-                              <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 800, color: '#581c87', marginBottom: '0.35rem' }}>
-                                Lab Title / Experiment Track:
-                              </label>
-                              <input
-                                type="text"
-                                value={course.labTitle}
-                                onChange={(e) => {
-                                  const val = e.target.value;
-                                  setConfiguredCourses(prev => {
-                                    const copy = [...prev];
-                                    copy[idx] = { ...copy[idx], labTitle: val };
-                                    return copy;
-                                  });
-                                }}
-                                placeholder="e.g., DBMS & SQL Practical Lab"
-                                style={{
-                                  width: '100%',
-                                  padding: '0.55rem 0.8rem',
-                                  borderRadius: '8px',
-                                  border: '1.5px solid #d8b4fe',
-                                  fontSize: '0.85rem',
-                                  fontWeight: 600
-                                }}
-                              />
-                            </div>
-
-                            {/* Lab Serial */}
-                            <div>
-                              <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 800, color: '#581c87', marginBottom: '0.35rem' }}>
-                                Lab Serial / Batch:
-                              </label>
-                              <input
-                                type="text"
-                                value={course.labSerial}
-                                onChange={(e) => {
-                                  const val = e.target.value;
-                                  setConfiguredCourses(prev => {
-                                    const copy = [...prev];
-                                    copy[idx] = { ...copy[idx], labSerial: val };
-                                    return copy;
-                                  });
-                                }}
-                                placeholder="e.g., Lab 1 / Group A"
-                                style={{
-                                  width: '100%',
-                                  padding: '0.55rem 0.8rem',
-                                  borderRadius: '8px',
-                                  border: '1.5px solid #d8b4fe',
-                                  fontSize: '0.85rem',
-                                  fontWeight: 600
-                                }}
-                              />
-                            </div>
-
-                            {/* Lab Room */}
-                            <div>
-                              <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 800, color: '#581c87', marginBottom: '0.35rem' }}>
-                                Lab Room / Facility:
-                              </label>
-                              <input
-                                type="text"
-                                value={course.roomNumber}
-                                onChange={(e) => {
-                                  const val = e.target.value;
-                                  setConfiguredCourses(prev => {
-                                    const copy = [...prev];
-                                    copy[idx] = { ...copy[idx], roomNumber: val };
-                                    return copy;
-                                  });
-                                }}
-                                placeholder="Software Lab 1"
-                                style={{
-                                  width: '100%',
-                                  padding: '0.55rem 0.8rem',
-                                  borderRadius: '8px',
-                                  border: '1.5px solid #d8b4fe',
-                                  fontSize: '0.85rem',
-                                  fontWeight: 600
-                                }}
-                              />
-                            </div>
-                          </div>
-
-                          {/* Lab Teacher & Contact (Auto-filled) */}
-                          <div style={{
-                            background: '#f8fafc',
-                            borderRadius: '12px',
-                            padding: '1rem',
-                            border: '1px solid #e2e8f0',
-                            marginBottom: '1rem'
-                          }}>
-                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '1rem', alignItems: 'flex-end' }}>
-                              <div>
-                                <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 800, color: '#334155', marginBottom: '0.35rem' }}>
-                                  Lab Instructor / Faculty:
-                                </label>
-                                <select
-                                  value={course.teacherType === 'EXTERNAL' ? 'EXTERNAL' : course.teacherId}
-                                  onChange={(e) => handleTeacherChange(idx, e.target.value)}
-                                  style={{
-                                    width: '100%',
-                                    padding: '0.55rem 0.8rem',
-                                    borderRadius: '8px',
-                                    border: '1.5px solid #cbd5e1',
-                                    fontSize: '0.85rem',
-                                    fontWeight: 700
-                                  }}
-                                >
-                                  <optgroup label="CSE Department Faculty">
-                                    {teachers.map(t => (
-                                      <option key={t.teacher_id} value={t.teacher_id}>
-                                        {t.first_name} {t.last_name} ({t.designation})
-                                      </option>
-                                    ))}
-                                  </optgroup>
-                                  <optgroup label="Other / Guest Faculty">
-                                    <option value="EXTERNAL">+ External / Other Department Teacher</option>
-                                  </optgroup>
-                                </select>
-                              </div>
-
-                              <div>
-                                <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 800, color: '#334155', marginBottom: '0.35rem' }}>
-                                  Department:
-                                </label>
-                                <input
-                                  type="text"
-                                  value={course.teacherDept}
-                                  onChange={(e) => {
-                                    const val = e.target.value;
-                                    setConfiguredCourses(prev => {
-                                      const copy = [...prev];
-                                      copy[idx] = { ...copy[idx], teacherDept: val };
-                                      return copy;
-                                    });
-                                  }}
-                                  style={{
-                                    width: '100%',
-                                    padding: '0.55rem 0.8rem',
-                                    borderRadius: '8px',
-                                    border: '1.5px solid #cbd5e1',
-                                    fontSize: '0.85rem',
-                                    fontWeight: 600
-                                  }}
-                                />
-                              </div>
-
-                              <div>
-                                <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 800, color: '#334155', marginBottom: '0.35rem' }}>
-                                  Instructor Phone Number:
-                                </label>
-                                <div style={{ position: 'relative' }}>
-                                  <input
-                                    type="text"
-                                    value={course.teacherPhone}
-                                    onChange={(e) => {
-                                      const val = e.target.value;
-                                      setConfiguredCourses(prev => {
-                                        const copy = [...prev];
-                                        copy[idx] = { ...copy[idx], teacherPhone: val };
-                                        return copy;
-                                      });
-                                    }}
-                                    placeholder="+8801700000000"
-                                    style={{
-                                      width: '100%',
-                                      padding: '0.55rem 0.8rem 0.55rem 2.2rem',
-                                      borderRadius: '8px',
-                                      border: '1.5px solid #10b981',
-                                      fontSize: '0.85rem',
-                                      fontWeight: 700
-                                    }}
-                                  />
-                                  <Phone size={14} style={{ position: 'absolute', left: '10px', top: '12px', color: '#10b981' }} />
-                                </div>
-                              </div>
-                            </div>
-                          </div>
-
-                          {/* Lab Timing Selection (2 or 3 Hour Continuous Block) */}
-                          <div>
-                            <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 800, color: '#334155', marginBottom: '0.5rem', textTransform: 'uppercase' }}>
-                              Lab Day & Duration Block (Click to Toggle):
-                            </label>
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-                              {weekdays.map(day => (
-                                <div key={day} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
-                                  <span style={{ width: '85px', fontSize: '0.8rem', fontWeight: 800, color: '#475569' }}>
-                                    {day}:
-                                  </span>
-                                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.35rem' }}>
-                                    {standardLabBlocks.map(block => {
-                                      const timeOnly = block.split(' (')[0];
-                                      const isSelected = course.timeSlots?.some(s => s.day === day && s.timeSlot.startsWith(timeOnly));
-
-                                      return (
-                                        <button
-                                          key={block}
-                                          type="button"
-                                          onClick={() => handleAddSlot(idx, day, timeOnly)}
-                                          style={{
-                                            border: '1px solid',
-                                            borderColor: isSelected ? '#7c3aed' : '#e2e8f0',
-                                            background: isSelected ? '#7c3aed' : '#ffffff',
-                                            color: isSelected ? '#ffffff' : '#334155',
-                                            padding: '0.3rem 0.7rem',
-                                            borderRadius: '6px',
-                                            fontSize: '0.75rem',
-                                            fontWeight: isSelected ? 700 : 500,
-                                            cursor: 'pointer',
-                                            transition: 'all 0.15s ease'
-                                          }}
-                                        >
-                                          {block}
-                                        </button>
-                                      );
-                                    })}
-                                  </div>
-                                </div>
-                              ))}
-                            </div>
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
-              </div>
+              <button
+                type="button"
+                onClick={() => setIsCreateModalOpen(false)}
+                style={{ background: 'none', border: 'none', color: '#ffffff', cursor: 'pointer' }}
+              >
+                <X size={18} />
+              </button>
             </div>
-          ) : (
-            /* EXAM ROUTINE BUILDER */
-            <div style={{ marginBottom: '2.5rem' }}>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1.25rem' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                  <GraduationCap size={22} color="#7c3aed" />
-                  <h3 style={{ fontSize: '1.2rem', fontWeight: 800, color: '#0f172a', margin: 0 }}>
-                    Semester Final Examination Schedule ({configuredExams.length} Courses)
-                  </h3>
-                </div>
-                <span style={{ fontSize: '0.8rem', color: '#64748b' }}>
-                  Set exam date, day, invigilator, room, and preparation gaps
-                </span>
+
+            <form onSubmit={handleCreateRoutineSubmit} style={{ padding: '1.5rem', display: 'flex', flexDirection: 'column', gap: '1.15rem' }}>
+              <div>
+                <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 800, color: '#0f172a', marginBottom: '0.35rem' }}>
+                  Routine Title *
+                </label>
+                <input
+                  type="text"
+                  required
+                  placeholder="e.g. CSE Class Routine - Spring 2027"
+                  value={createForm.title}
+                  onChange={(e) => setCreateForm({ ...createForm, title: e.target.value })}
+                  style={{ width: '100%', padding: '0.65rem 0.85rem', borderRadius: '10px', border: '1px solid #cbd5e1', fontSize: '0.85rem', boxSizing: 'border-box' }}
+                />
               </div>
 
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-                {configuredExams.map((exam, idx) => (
-                  <div key={exam.courseId} className="card" style={{ padding: '1.25rem 1.5rem', borderLeft: '4px solid #7c3aed' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.5rem', marginBottom: '1rem' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem' }}>
-                        <span style={{
-                          background: '#7c3aed',
-                          color: '#ffffff',
-                          fontWeight: 800,
-                          fontSize: '0.8rem',
-                          padding: '0.2rem 0.55rem',
-                          borderRadius: '6px'
-                        }}>
-                          Exam #{exam.serial}
-                        </span>
-                        <span style={{ fontWeight: 800, fontSize: '0.95rem', color: '#1e3a8a' }}>
-                          {exam.courseCode}
-                        </span>
-                        <h4 style={{ margin: 0, fontSize: '1rem', fontWeight: 700, color: '#0f172a' }}>
-                          {exam.courseTitle}
-                        </h4>
-                      </div>
+              <div>
+                <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 800, color: '#0f172a', marginBottom: '0.35rem' }}>
+                  Academic Session *
+                </label>
+                <input
+                  type="text"
+                  required
+                  placeholder="e.g. Session 2026-2027"
+                  value={createForm.academicYear}
+                  onChange={(e) => setCreateForm({ ...createForm, academicYear: e.target.value })}
+                  style={{ width: '100%', padding: '0.65rem 0.85rem', borderRadius: '10px', border: '1px solid #cbd5e1', fontSize: '0.85rem', boxSizing: 'border-box' }}
+                />
+              </div>
 
-                      {/* Preparation Gap indicator from previous exam */}
-                      {idx > 0 && exam.date && configuredExams[idx - 1].date && (
-                        <span style={{
-                          fontSize: '0.75rem',
-                          fontWeight: 800,
-                          background: '#ecfdf5',
-                          color: '#065f46',
-                          padding: '0.2rem 0.6rem',
-                          borderRadius: '8px',
-                          border: '1px solid #a7f3d0'
-                        }}>
-                          🗓️ {Math.max(0, Math.round((new Date(exam.date) - new Date(configuredExams[idx - 1].date)) / (1000 * 60 * 60 * 24)))} Days Gap
+              <div>
+                <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 800, color: '#0f172a', marginBottom: '0.35rem' }}>
+                  Effective Date
+                </label>
+                <input
+                  type="date"
+                  value={createForm.effectiveFrom}
+                  onChange={(e) => setCreateForm({ ...createForm, effectiveFrom: e.target.value })}
+                  style={{ width: '100%', padding: '0.65rem 0.85rem', borderRadius: '10px', border: '1px solid #cbd5e1', fontSize: '0.85rem', boxSizing: 'border-box' }}
+                />
+              </div>
+
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.75rem', marginTop: '0.5rem', paddingTop: '1rem', borderTop: '1px solid #f1f5f9' }}>
+                <button
+                  type="button"
+                  onClick={() => setIsCreateModalOpen(false)}
+                  style={{ padding: '0.55rem 1.15rem', borderRadius: '8px', border: '1px solid #cbd5e1', background: '#ffffff', color: '#475569', fontWeight: 700, fontSize: '0.82rem', cursor: 'pointer' }}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={creatingRoutine}
+                  style={{ padding: '0.55rem 1.35rem', borderRadius: '8px', border: 'none', background: 'linear-gradient(135deg, #6366f1 0%, #4f46e5 100%)', color: '#ffffff', fontWeight: 800, fontSize: '0.82rem', cursor: 'pointer' }}
+                >
+                  {creatingRoutine ? 'Creating...' : 'Create Routine'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* 8. ADD SEMESTER MODAL */}
+      {isAddSemesterModalOpen && (
+        <div 
+          className="modal-backdrop-custom"
+          style={{
+            position: 'fixed',
+            inset: 0,
+            zIndex: 1000,
+            backgroundColor: 'rgba(15, 23, 42, 0.75)',
+            backdropFilter: 'blur(6px)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: '1.25rem'
+          }}
+        >
+          <div 
+            style={{
+              background: '#ffffff',
+              borderRadius: '20px',
+              maxWidth: '520px',
+              width: '100%',
+              overflow: 'hidden',
+              border: '1px solid #e2e8f0',
+              boxShadow: '0 25px 50px -12px rgba(0,0,0,0.35)',
+              animation: 'fadeInUp 0.25s ease-out'
+            }}
+          >
+            <div style={{
+              padding: '1.25rem 1.5rem',
+              background: 'linear-gradient(135deg, #09101d 0%, #1e1b4b 100%)',
+              color: '#ffffff',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between'
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                <Layers size={22} color="#6366f1" />
+                <h3 style={{ margin: 0, fontSize: '1.2rem', fontWeight: 800 }}>Add Semester Session</h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsAddSemesterModalOpen(false)}
+                style={{ background: 'none', border: 'none', color: '#ffffff', cursor: 'pointer' }}
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <form onSubmit={handleAddSemesterSubmit} style={{ padding: '1.5rem', display: 'flex', flexDirection: 'column', gap: '1.15rem' }}>
+              <div>
+                <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 800, color: '#0f172a', marginBottom: '0.35rem' }}>
+                  Select Session *
+                </label>
+                <select
+                  value={selectedSessionForAdd}
+                  onChange={(e) => {
+                    setSelectedSessionForAdd(e.target.value);
+                    const sess = academicTree.find(s => s.id === e.target.value);
+                    if (sess && sess.semesters && sess.semesters[0]) {
+                      setSelectedSemesterIdForAdd(sess.semesters[0].id);
+                    }
+                  }}
+                  style={{ width: '100%', padding: '0.65rem 0.85rem', borderRadius: '10px', border: '1px solid #cbd5e1', fontSize: '0.85rem', boxSizing: 'border-box', background: '#ffffff' }}
+                >
+                  {academicTree.map(s => (
+                    <option key={s.id} value={s.id}>{s.sessionName}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 800, color: '#0f172a', marginBottom: '0.35rem' }}>
+                  Select Semester *
+                </label>
+                <select
+                  value={selectedSemesterIdForAdd}
+                  onChange={(e) => setSelectedSemesterIdForAdd(e.target.value)}
+                  style={{ width: '100%', padding: '0.65rem 0.85rem', borderRadius: '10px', border: '1px solid #cbd5e1', fontSize: '0.85rem', boxSizing: 'border-box', background: '#ffffff' }}
+                >
+                  {semestersForSelectedSession.length === 0 ? (
+                    <option value="">No semesters found in this session</option>
+                  ) : (
+                    semestersForSelectedSession.map(sm => (
+                      <option key={sm.id} value={sm.id}>
+                        {sm.semesterName} ({sm.shortTerm || sm.termCode}) - {sm.courseCount || 0} Courses
+                      </option>
+                    ))
+                  )}
+                </select>
+              </div>
+
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.75rem', marginTop: '0.5rem', paddingTop: '1rem', borderTop: '1px solid #f1f5f9' }}>
+                <button
+                  type="button"
+                  onClick={() => setIsAddSemesterModalOpen(false)}
+                  style={{ padding: '0.55rem 1.15rem', borderRadius: '8px', border: '1px solid #cbd5e1', background: '#ffffff', color: '#475569', fontWeight: 700, fontSize: '0.82rem', cursor: 'pointer' }}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={addingSemester}
+                  style={{ padding: '0.55rem 1.35rem', borderRadius: '8px', border: 'none', background: 'linear-gradient(135deg, #6366f1 0%, #4f46e5 100%)', color: '#ffffff', fontWeight: 800, fontSize: '0.82rem', cursor: 'pointer' }}
+                >
+                  {addingSemester ? 'Adding...' : 'Add Semester'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* 9. SLOT CREATE / EDIT MODAL */}
+      {slotModalState && slotModalState.isOpen && (
+        <div 
+          className="modal-backdrop-custom"
+          style={{
+            position: 'fixed',
+            inset: 0,
+            zIndex: 1000,
+            backgroundColor: 'rgba(15, 23, 42, 0.75)',
+            backdropFilter: 'blur(6px)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: '1.25rem'
+          }}
+        >
+          <div 
+            style={{
+              background: '#ffffff',
+              borderRadius: '20px',
+              maxWidth: '560px',
+              width: '100%',
+              overflow: 'hidden',
+              border: '1px solid #e2e8f0',
+              boxShadow: '0 25px 50px -12px rgba(0,0,0,0.35)',
+              animation: 'fadeInUp 0.25s ease-out'
+            }}
+          >
+            <div style={{
+              padding: '1.25rem 1.5rem',
+              background: 'linear-gradient(135deg, #09101d 0%, #1e1b4b 100%)',
+              color: '#ffffff',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between'
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                <Clock size={22} color="#6366f1" />
+                <h3 style={{ margin: 0, fontSize: '1.15rem', fontWeight: 800 }}>
+                  {slotModalState.mode === 'EDIT' ? 'Edit Class Slot' : 'Schedule New Class Period'}
+                </h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setSlotModalState(null)}
+                style={{ background: 'none', border: 'none', color: '#ffffff', cursor: 'pointer' }}
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <div style={{ padding: '1.5rem', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+              
+              {/* Conflict alert preview */}
+              {candidateConflict && candidateConflict.hasConflict && (
+                <div style={{ padding: '0.75rem 1rem', background: '#fee2e2', border: '1px solid #fecaca', borderRadius: '10px', color: '#991b1b', fontSize: '0.82rem', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                  <AlertTriangle size={16} />
+                  <span>{candidateConflict.message}</span>
+                </div>
+              )}
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+                <div>
+                  <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 800, color: '#0f172a', marginBottom: '0.35rem' }}>
+                    Semester *
+                  </label>
+                  <select
+                    value={slotModalState.semesterId}
+                    onChange={(e) => handleSlotSemesterChange(e.target.value)}
+                    style={{ width: '100%', padding: '0.65rem', borderRadius: '8px', border: '1px solid #cbd5e1', fontSize: '0.82rem', background: '#ffffff', boxSizing: 'border-box' }}
+                  >
+                    {(activeRoutine.semesters || []).map(s => (
+                      <option key={s.semesterId} value={s.semesterId}>
+                        {s.semesterName} ({s.shortTerm || s.termCode})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 800, color: '#0f172a', marginBottom: '0.35rem' }}>
+                    Course *
+                  </label>
+                  <select
+                    value={slotModalState.courseId}
+                    onChange={(e) => handleSlotCourseChange(e.target.value)}
+                    style={{ width: '100%', padding: '0.65rem', borderRadius: '8px', border: '1px solid #cbd5e1', fontSize: '0.82rem', background: '#ffffff', boxSizing: 'border-box' }}
+                  >
+                    {((activeRoutine.semesters.find(s => s.semesterId === slotModalState.semesterId)?.courses) || []).map(c => (
+                      <option key={c.courseId || c.id} value={c.courseId || c.id}>
+                        {c.courseCode} - {c.courseTitle}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '0.75rem' }}>
+                <div>
+                  <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 800, color: '#0f172a', marginBottom: '0.35rem' }}>
+                    Day *
+                  </label>
+                  <select
+                    value={slotModalState.day}
+                    onChange={(e) => setSlotModalState({ ...slotModalState, day: e.target.value })}
+                    style={{ width: '100%', padding: '0.65rem', borderRadius: '8px', border: '1px solid #cbd5e1', fontSize: '0.82rem', background: '#ffffff', boxSizing: 'border-box' }}
+                  >
+                    {SCHEDULE_DAYS.map(d => (
+                      <option key={d.name} value={d.name}>{d.name}</option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 800, color: '#0f172a', marginBottom: '0.35rem' }}>
+                    Starting Period *
+                  </label>
+                  <select
+                    value={slotModalState.startPeriodId}
+                    onChange={(e) => setSlotModalState({ ...slotModalState, startPeriodId: e.target.value })}
+                    style={{ width: '100%', padding: '0.65rem', borderRadius: '8px', border: '1px solid #cbd5e1', fontSize: '0.82rem', background: '#ffffff', boxSizing: 'border-box' }}
+                  >
+                    {SCHEDULE_PERIODS.filter(p => !p.isBreak).map(p => (
+                      <option key={p.id} value={p.id}>
+                        {p.label} ({p.startTime})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 800, color: '#0f172a', marginBottom: '0.35rem' }}>
+                    Duration / Span *
+                  </label>
+                  <select
+                    value={slotModalState.span}
+                    onChange={(e) => setSlotModalState({ ...slotModalState, span: parseInt(e.target.value) || 1 })}
+                    style={{ width: '100%', padding: '0.65rem', borderRadius: '8px', border: '1px solid #cbd5e1', fontSize: '0.82rem', background: '#ffffff', boxSizing: 'border-box' }}
+                  >
+                    <option value={1}>1 Hour (1 Period)</option>
+                    <option value={2}>2 Hours (2 Periods)</option>
+                    <option value={3}>3 Hours (Lab Block)</option>
+                  </select>
+                </div>
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+                <div>
+                  <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 800, color: '#0f172a', marginBottom: '0.35rem' }}>
+                    Room Allocation *
+                  </label>
+                  <select
+                    value={slotModalState.room}
+                    onChange={(e) => setSlotModalState({ ...slotModalState, room: e.target.value })}
+                    style={{ width: '100%', padding: '0.65rem', borderRadius: '8px', border: '1px solid #cbd5e1', fontSize: '0.82rem', background: '#ffffff', boxSizing: 'border-box' }}
+                  >
+                    {COMMON_ROOMS.map(rm => (
+                      <option key={rm} value={rm}>{rm}</option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 800, color: '#0f172a', marginBottom: '0.35rem' }}>
+                    Teacher Assigned
+                  </label>
+                  <div style={{ padding: '0.65rem', background: '#f8fafc', borderRadius: '8px', border: '1px solid #cbd5e1', fontSize: '0.82rem', fontWeight: 700, color: '#334155' }}>
+                    {slotModalState.teacherShortCode || slotModalState.teacherName || 'Not Assigned'}
+                  </div>
+                </div>
+              </div>
+
+              {/* Locked checkbox */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem', marginTop: '0.25rem' }}>
+                <input
+                  type="checkbox"
+                  id="slotLockCheckbox"
+                  checked={Boolean(slotModalState.isLocked)}
+                  onChange={(e) => setSlotModalState({ ...slotModalState, isLocked: e.target.checked })}
+                  style={{ width: '16px', height: '16px', cursor: 'pointer' }}
+                />
+                <label htmlFor="slotLockCheckbox" style={{ fontSize: '0.82rem', color: '#0f172a', fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+                  <Lock size={14} color="#d97706" /> Lock this slot (Preserves slot when auto-scheduling)
+                </label>
+              </div>
+
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.75rem', marginTop: '0.5rem', paddingTop: '1rem', borderTop: '1px solid #f1f5f9' }}>
+                <button
+                  type="button"
+                  onClick={() => setSlotModalState(null)}
+                  style={{ padding: '0.55rem 1.15rem', borderRadius: '8px', border: '1px solid #cbd5e1', background: '#ffffff', color: '#475569', fontWeight: 700, fontSize: '0.82rem', cursor: 'pointer' }}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={handleSaveSlot}
+                  style={{ padding: '0.55rem 1.35rem', borderRadius: '8px', border: 'none', background: 'linear-gradient(135deg, #6366f1 0%, #4f46e5 100%)', color: '#ffffff', fontWeight: 800, fontSize: '0.82rem', cursor: 'pointer' }}
+                >
+                  <Check size={16} /> {slotModalState.mode === 'EDIT' ? 'Save Changes' : 'Add to Schedule'}
+                </button>
+              </div>
+
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 10. CONFLICTS LIST MODAL */}
+      {isConflictListModalOpen && (
+        <div 
+          className="modal-backdrop-custom"
+          style={{
+            position: 'fixed',
+            inset: 0,
+            zIndex: 1000,
+            backgroundColor: 'rgba(15, 23, 42, 0.75)',
+            backdropFilter: 'blur(6px)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: '1.25rem'
+          }}
+        >
+          <div 
+            style={{
+              background: '#ffffff',
+              borderRadius: '20px',
+              maxWidth: '640px',
+              width: '100%',
+              maxHeight: '85vh',
+              display: 'flex',
+              flexDirection: 'column',
+              overflow: 'hidden',
+              boxShadow: '0 25px 50px -12px rgba(0,0,0,0.35)'
+            }}
+          >
+            <div style={{
+              padding: '1.25rem 1.5rem',
+              background: '#dc2626',
+              color: '#ffffff',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between'
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                <AlertTriangle size={22} color="#ffffff" />
+                <h3 style={{ margin: 0, fontSize: '1.15rem', fontWeight: 800 }}>Schedule Conflicts</h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsConflictListModalOpen(false)}
+                style={{ background: 'none', border: 'none', color: '#ffffff', cursor: 'pointer' }}
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <div style={{ padding: '1.5rem', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+              {entireConflicts.map((cf, idx) => (
+                <div key={idx} style={{ padding: '0.85rem 1rem', background: '#fee2e2', border: '1px solid #f87171', borderRadius: '10px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <div>
+                    <span className="badge" style={{ background: '#b91c1c', color: '#ffffff', fontSize: '0.65rem', fontWeight: 800 }}>
+                      {cf.type.replace('_', ' ')}
+                    </span>
+                    <div style={{ fontSize: '0.82rem', fontWeight: 700, color: '#991b1b', marginTop: '0.25rem' }}>
+                      {cf.message}
+                    </div>
+                  </div>
+                  {cf.slotIds?.[0] && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        handleDeleteSlot(cf.slotIds[0]);
+                      }}
+                      style={{ background: '#ffffff', border: '1px solid #f87171', color: '#b91c1c', borderRadius: '6px', padding: '0.35rem 0.65rem', fontSize: '0.72rem', fontWeight: 800, cursor: 'pointer' }}
+                    >
+                      Remove
+                    </button>
+                  )}
+                </div>
+              ))}
+            </div>
+
+            <div style={{ padding: '1rem 1.5rem', background: '#f8fafc', borderTop: '1px solid #e2e8f0', display: 'flex', justifyContent: 'flex-end' }}>
+              <button
+                type="button"
+                onClick={() => setIsConflictListModalOpen(false)}
+                style={{ padding: '0.45rem 1.15rem', borderRadius: '8px', border: 'none', background: '#334155', color: '#ffffff', fontWeight: 700, fontSize: '0.82rem', cursor: 'pointer' }}
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 11. FACULTY WORKLOAD OVERVIEW MODAL */}
+      {isWorkloadModalOpen && (
+        <div 
+          className="modal-backdrop-custom"
+          style={{
+            position: 'fixed',
+            inset: 0,
+            zIndex: 1000,
+            backgroundColor: 'rgba(15, 23, 42, 0.75)',
+            backdropFilter: 'blur(6px)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: '1.25rem'
+          }}
+        >
+          <div 
+            style={{
+              background: '#ffffff',
+              borderRadius: '20px',
+              maxWidth: '720px',
+              width: '100%',
+              maxHeight: '85vh',
+              display: 'flex',
+              flexDirection: 'column',
+              overflow: 'hidden',
+              boxShadow: '0 25px 50px -12px rgba(0,0,0,0.35)'
+            }}
+          >
+            <div style={{
+              padding: '1.25rem 1.5rem',
+              background: 'linear-gradient(135deg, #09101d 0%, #1e1b4b 100%)',
+              color: '#ffffff',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between'
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                <Users size={22} color="#6366f1" />
+                <h3 style={{ margin: 0, fontSize: '1.15rem', fontWeight: 800 }}>Faculty Workload Overview</h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsWorkloadModalOpen(false)}
+                style={{ background: 'none', border: 'none', color: '#ffffff', cursor: 'pointer' }}
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <div style={{ padding: '1.5rem', overflowY: 'auto' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: '1rem' }}>
+                {Object.values(teacherWorkloadMap).map((tw, idx) => (
+                  <div key={idx} style={{ padding: '1rem', borderRadius: '12px', border: '1px solid #e2e8f0', background: '#fafbfc' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                      <div>
+                        <div style={{ fontWeight: 800, fontSize: '0.92rem', color: '#0f172a' }}>{tw.teacherName}</div>
+                        <div style={{ fontSize: '0.75rem', color: '#64748b' }}>{tw.department} • {tw.designation || 'Faculty'}</div>
+                      </div>
+                      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '3px' }}>
+                        <span className="badge" style={{ background: '#6366f1', color: '#ffffff', fontSize: '0.7rem', fontWeight: 800 }}>
+                          {tw.weeklyHours}h / week
                         </span>
-                      )}
+                        <div style={{ display: 'flex', gap: '4px', fontSize: '0.66rem', fontWeight: 800 }}>
+                          <span style={{ color: '#059669', background: '#ecfdf5', padding: '1px 4px', borderRadius: '4px' }}>
+                            Filled: {tw.scheduledHours}h
+                          </span>
+                          <span style={{ color: tw.remainingHours === 0 ? '#059669' : '#d97706', background: tw.remainingHours === 0 ? '#ecfdf5' : '#fffbeb', padding: '1px 4px', borderRadius: '4px' }}>
+                            {tw.remainingHours === 0 ? '✓ Complete' : `${tw.remainingHours}h left`}
+                          </span>
+                        </div>
+                      </div>
                     </div>
 
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1rem', alignItems: 'flex-end' }}>
-                      {/* Date */}
-                      <div>
-                        <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 800, color: '#334155', marginBottom: '0.35rem' }}>
-                          Exam Date:
-                        </label>
-                        <input
-                          type="date"
-                          value={exam.date}
-                          onChange={(e) => handleExamDateChange(idx, e.target.value)}
-                          style={{
-                            width: '100%',
-                            padding: '0.55rem 0.8rem',
-                            borderRadius: '8px',
-                            border: '1.5px solid #cbd5e1',
-                            fontSize: '0.85rem',
-                            fontWeight: 700
-                          }}
-                        />
-                      </div>
-
-                      {/* Day of Week */}
-                      <div>
-                        <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 800, color: '#334155', marginBottom: '0.35rem' }}>
-                          Day of Week:
-                        </label>
-                        <input
-                          type="text"
-                          value={exam.day}
-                          readOnly
-                          placeholder="Auto-calculated from date"
-                          style={{
-                            width: '100%',
-                            padding: '0.55rem 0.8rem',
-                            borderRadius: '8px',
-                            border: '1px solid #e2e8f0',
-                            background: '#f8fafc',
-                            fontSize: '0.85rem',
-                            fontWeight: 700,
-                            color: '#475569'
-                          }}
-                        />
-                      </div>
-
-                      {/* Time Slot */}
-                      <div>
-                        <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 800, color: '#334155', marginBottom: '0.35rem' }}>
-                          Exam Time Slot:
-                        </label>
-                        <select
-                          value={exam.timeSlot}
-                          onChange={(e) => {
-                            const val = e.target.value;
-                            setConfiguredExams(prev => {
-                              const copy = [...prev];
-                              copy[idx] = { ...copy[idx], timeSlot: val };
-                              return copy;
-                            });
-                          }}
-                          style={{
-                            width: '100%',
-                            padding: '0.55rem 0.8rem',
-                            borderRadius: '8px',
-                            border: '1.5px solid #cbd5e1',
-                            fontSize: '0.85rem',
-                            fontWeight: 600
-                          }}
-                        >
-                          <option value="10:00 AM - 01:00 PM">10:00 AM - 01:00 PM (Morning Slot)</option>
-                          <option value="02:00 PM - 05:00 PM">02:00 PM - 05:00 PM (Afternoon Slot)</option>
-                          <option value="09:30 AM - 12:30 PM">09:30 AM - 12:30 PM</option>
-                        </select>
-                      </div>
-
-                      {/* Room / Hall */}
-                      <div>
-                        <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 800, color: '#334155', marginBottom: '0.35rem' }}>
-                          Exam Hall / Room:
-                        </label>
-                        <input
-                          type="text"
-                          value={exam.roomNumber}
-                          onChange={(e) => {
-                            const val = e.target.value;
-                            setConfiguredExams(prev => {
-                              const copy = [...prev];
-                              copy[idx] = { ...copy[idx], roomNumber: val };
-                              return copy;
-                            });
-                          }}
-                          placeholder="Gallery Room 401 & 402"
-                          style={{
-                            width: '100%',
-                            padding: '0.55rem 0.8rem',
-                            borderRadius: '8px',
-                            border: '1.5px solid #cbd5e1',
-                            fontSize: '0.85rem',
-                            fontWeight: 600
-                          }}
-                        />
-                      </div>
-
-                      {/* Invigilator / Course Teacher */}
-                      <div>
-                        <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 800, color: '#334155', marginBottom: '0.35rem' }}>
-                          Chief Invigilator / Teacher:
-                        </label>
-                        <select
-                          value={teachers.find(t => `${t.first_name} ${t.last_name}` === exam.invigilatorName)?.teacher_id || 'EXTERNAL'}
-                          onChange={(e) => handleExamTeacherChange(idx, e.target.value)}
-                          style={{
-                            width: '100%',
-                            padding: '0.55rem 0.8rem',
-                            borderRadius: '8px',
-                            border: '1.5px solid #cbd5e1',
-                            fontSize: '0.85rem',
-                            fontWeight: 700
-                          }}
-                        >
-                          <optgroup label="CSE Department Faculty">
-                            {teachers.map(t => (
-                              <option key={t.teacher_id} value={t.teacher_id}>
-                                {t.first_name} {t.last_name}
-                              </option>
-                            ))}
-                          </optgroup>
-                          <optgroup label="Other">
-                            <option value="EXTERNAL">Other / External</option>
-                          </optgroup>
-                        </select>
-                      </div>
-
-                      {/* Contact Phone Number */}
-                      <div>
-                        <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 800, color: '#334155', marginBottom: '0.35rem' }}>
-                          Contact Phone:
-                        </label>
-                        <input
-                          type="text"
-                          value={exam.teacherPhone}
-                          onChange={(e) => {
-                            const val = e.target.value;
-                            setConfiguredExams(prev => {
-                              const copy = [...prev];
-                              copy[idx] = { ...copy[idx], teacherPhone: val };
-                              return copy;
-                            });
-                          }}
-                          style={{
-                            width: '100%',
-                            padding: '0.55rem 0.8rem',
-                            borderRadius: '8px',
-                            border: '1px solid #10b981',
-                            fontSize: '0.85rem',
-                            fontWeight: 700
-                          }}
-                        />
-                      </div>
+                    <div style={{ marginTop: '0.75rem', paddingTop: '0.5rem', borderTop: '1px solid #f1f5f9', display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
+                      {tw.courses.map((cs, cIdx) => (
+                        <div key={cIdx} style={{ fontSize: '0.74rem', color: '#334155', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                          <span>{cs.courseCode} ({cs.termCode})</span>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                            <span style={{ fontSize: '0.68rem', color: '#2563eb', fontWeight: 700 }}>
+                              {cs.scheduledHours}/{cs.weeklyHours}h
+                            </span>
+                            <span style={{ fontWeight: 700, color: cs.remainingHours === 0 ? '#059669' : '#d97706', fontSize: '0.68rem' }}>
+                              ({cs.remainingHours === 0 ? '✓' : `${cs.remainingHours}h left`})
+                            </span>
+                          </div>
+                        </div>
+                      ))}
                     </div>
                   </div>
                 ))}
               </div>
             </div>
-          )}
 
-          {/* Bottom Action Bar: Generate / Make Routine Button */}
-          <div style={{
-            position: 'sticky',
-            bottom: '1rem',
-            background: 'rgba(15, 23, 42, 0.95)',
-            backdropFilter: 'blur(10px)',
-            borderRadius: '14px',
-            padding: '1rem 1.75rem',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            boxShadow: '0 10px 30px rgba(0,0,0,0.3)',
-            zIndex: 40,
-            color: '#ffffff'
-          }}>
-            <div>
-              <div style={{ fontWeight: 800, fontSize: '0.95rem' }}>
-                Ready to Compile Routine?
-              </div>
-              <div style={{ fontSize: '0.75rem', color: '#94a3b8' }}>
-                Generates full timetable preview where you can edit specific slots, publish to Notice Board, or export.
-              </div>
-            </div>
-
-            <button
-              onClick={handleGenerateRoutine}
-              className="btn btn-primary"
-              style={{
-                background: 'linear-gradient(135deg, #2563eb, #6366f1)',
-                padding: '0.75rem 1.75rem',
-                fontSize: '0.95rem',
-                fontWeight: 800,
-                display: 'flex',
-                alignItems: 'center',
-                gap: '0.5rem',
-                boxShadow: '0 4px 15px rgba(37, 99, 235, 0.4)'
-              }}
-            >
-              <Sparkles size={18} />
-              <span>Generate Routine & Preview Timetable</span>
-            </button>
-          </div>
-        </div>
-      ) : (
-        /* GENERATED ROUTINE PREVIEW WITH INTERACTIVE EDIT, PUBLISH & EXPORT */
-        <div className="generated-routine-view">
-          {/* Action Toolbar */}
-          <div className="card" style={{
-            padding: '1.25rem 1.5rem',
-            marginBottom: '1.5rem',
-            background: '#ffffff',
-            display: 'flex',
-            flexWrap: 'wrap',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            gap: '1rem'
-          }}>
-            <div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                <h3 style={{ fontSize: '1.15rem', fontWeight: 800, margin: 0, color: '#0f172a' }}>
-                  {routineTitle}
-                </h3>
-                <span style={{
-                  fontSize: '0.7rem',
-                  fontWeight: 800,
-                  background: routineStatus === 'PUBLISHED' ? '#059669' : '#f59e0b',
-                  color: '#ffffff',
-                  padding: '0.15rem 0.5rem',
-                  borderRadius: '6px'
-                }}>
-                  {routineStatus}
-                </span>
-              </div>
-              <div style={{ fontSize: '0.8rem', color: '#64748b', marginTop: '0.2rem' }}>
-                {activeSessionObj?.session_name} &bull; {activeSemesterObj?.semester_name}
-              </div>
-            </div>
-
-            {/* Publish & Export Actions */}
-            <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '0.6rem' }}>
-              {/* Back to Edit Form */}
+            <div style={{ padding: '1rem 1.5rem', background: '#f8fafc', borderTop: '1px solid #e2e8f0', display: 'flex', justifyContent: 'flex-end' }}>
               <button
-                onClick={() => setIsGenerated(false)}
-                className="btn btn-secondary"
-                style={{ fontSize: '0.85rem', padding: '0.55rem 0.9rem' }}
+                type="button"
+                onClick={() => setIsWorkloadModalOpen(false)}
+                style={{ padding: '0.45rem 1.15rem', borderRadius: '8px', border: 'none', background: '#334155', color: '#ffffff', fontWeight: 700, fontSize: '0.82rem', cursor: 'pointer' }}
               >
-                <ArrowLeft size={16} />
-                <span>Add / Adjust Courses</span>
-              </button>
-
-              {/* Save Routine Draft */}
-              <button
-                onClick={() => handleSaveRoutineToDB('DRAFT')}
-                disabled={actionLoading}
-                className="btn btn-secondary"
-                style={{ fontSize: '0.85rem', padding: '0.55rem 0.9rem' }}
-                title="Save routine data to system database"
-              >
-                <Save size={16} />
-                <span>Save Routine</span>
-              </button>
-
-              {/* Export as Word (.doc) */}
-              <button
-                onClick={handleExportWord}
-                className="btn btn-secondary"
-                style={{
-                  background: 'rgba(59, 130, 246, 0.1)',
-                  borderColor: '#93c5fd',
-                  color: '#1d4ed8',
-                  fontSize: '0.85rem',
-                  fontWeight: 700,
-                  padding: '0.55rem 1rem'
-                }}
-                title="Download formatted Microsoft Word (.doc) file"
-              >
-                <FileText size={16} />
-                <span>Save as Word (.doc)</span>
-              </button>
-
-              {/* Export PDF / Print */}
-              <button
-                onClick={handleExportPDF}
-                className="btn btn-secondary"
-                style={{ fontSize: '0.85rem', padding: '0.55rem 0.9rem' }}
-                title="Print or Save as PDF"
-              >
-                <Printer size={16} />
-                <span>Print / PDF</span>
-              </button>
-
-              {/* Publish to Notice Board */}
-              <button
-                onClick={handlePublishToNoticeBoard}
-                disabled={actionLoading}
-                className="btn btn-primary"
-                style={{
-                  background: 'linear-gradient(135deg, #059669, #10b981)',
-                  color: '#ffffff',
-                  fontSize: '0.85rem',
-                  fontWeight: 800,
-                  padding: '0.55rem 1.25rem',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '0.4rem',
-                  boxShadow: '0 4px 12px rgba(5, 150, 105, 0.3)'
-                }}
-                title="Publish directly to Department Notice Board for all students and faculty"
-              >
-                <Share2 size={16} />
-                <span>Publish to Notice Board</span>
+                Close
               </button>
             </div>
           </div>
-
-          {/* TIMETABLE CONTENT */}
-          {routineMode === 'CLASS_ROUTINE' ? (
-            <div>
-              {/* Weekly Timetable Grid */}
-              <div className="card" style={{ padding: '1.5rem', marginBottom: '2rem', background: '#ffffff', overflowX: 'auto' }}>
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1.25rem' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                    <CalendarCheck size={20} color="#2563eb" />
-                    <h3 style={{ fontSize: '1.15rem', fontWeight: 800, margin: 0, color: '#0f172a' }}>
-                      Weekly Master Timetable
-                    </h3>
-                  </div>
-                  <span style={{ fontSize: '0.75rem', fontWeight: 700, color: '#059669', background: '#ecfdf5', padding: '0.2rem 0.6rem', borderRadius: '6px' }}>
-                    💡 Tip: Click "✏️ Edit" on any slot to change date, time, or teacher instantly
-                  </span>
-                </div>
-
-                <table style={{ width: '100%', minWidth: '950px', borderCollapse: 'collapse', fontSize: '0.85rem' }}>
-                  <thead>
-                    <tr style={{ background: '#f8fafc', borderBottom: '2px solid #e2e8f0' }}>
-                      <th style={{ padding: '0.85rem 1rem', textAlign: 'center', width: '120px', color: '#475569', fontWeight: 800 }}>
-                        DAY / PERIOD
-                      </th>
-                      {standardPeriods.map(p => (
-                        <th key={p} style={{ padding: '0.85rem 0.6rem', textAlign: 'center', color: '#1e293b', fontWeight: 800, borderLeft: '1px solid #f1f5f9' }}>
-                          {p}
-                        </th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {weekdays.map(day => (
-                      <tr key={day} style={{ borderBottom: '1px solid #e2e8f0' }}>
-                        <td style={{ padding: '1rem', fontWeight: 800, background: '#f8fafc', textAlign: 'center', color: '#0f172a' }}>
-                          {day}
-                        </td>
-                        {standardPeriods.map(p => {
-                          // Find slots matching this day and time period
-                          const matchingSlots = [];
-                          const sessionsToInspect = sessionsInRoutine.length > 0 ? sessionsInRoutine : [{ courses: configuredCourses }];
-
-                          sessionsToInspect.forEach(sess => {
-                            if (Array.isArray(sess.courses)) {
-                              sess.courses.forEach(c => {
-                                if (Array.isArray(c.timeSlots)) {
-                                  c.timeSlots.forEach(s => {
-                                    // Check match or overlap with lab block
-                                    if (s.day === day && (s.timeSlot === p || s.timeSlot.includes(p.split(' - ')[0]))) {
-                                      matchingSlots.push({ slot: s, course: c });
-                                    }
-                                  });
-                                }
-                              });
-                            }
-                          });
-
-                          return (
-                            <td key={p} style={{ padding: '0.5rem', verticalAlign: 'top', borderLeft: '1px solid #f1f5f9', minHeight: '80px', width: '13%' }}>
-                              {matchingSlots.length === 0 ? (
-                                <div style={{ height: '50px', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#cbd5e1', fontSize: '0.75rem' }}>
-                                  -
-                                </div>
-                              ) : (
-                                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
-                                  {matchingSlots.map(({ slot, course }, mIdx) => {
-                                    const isLab = course.courseType === 'LAB';
-
-                                    return (
-                                      <div
-                                        key={mIdx}
-                                        style={{
-                                          background: isLab ? '#faf5ff' : '#eff6ff',
-                                          border: isLab ? '1px solid #d8b4fe' : '1px solid #bfdbfe',
-                                          borderRadius: '8px',
-                                          padding: '0.5rem',
-                                          position: 'relative'
-                                        }}
-                                      >
-                                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                                          <span style={{
-                                            fontWeight: 800,
-                                            fontSize: '0.8rem',
-                                            color: isLab ? '#7c3aed' : '#1d4ed8'
-                                          }}>
-                                            {course.courseCode}
-                                          </span>
-
-                                          {/* Quick Edit Slot Button */}
-                                          <button
-                                            onClick={() => handleOpenEditModal({
-                                              courseId: course.courseId,
-                                              oldDay: day,
-                                              oldTimeSlot: slot.timeSlot,
-                                              newDay: day,
-                                              newTimeSlot: slot.timeSlot,
-                                              newRoomNumber: slot.roomNumber || course.roomNumber,
-                                              teacherName: course.teacherName,
-                                              teacherDept: course.teacherDept,
-                                              teacherPhone: course.teacherPhone
-                                            }, 'SLOT', course)}
-                                            style={{
-                                              background: 'transparent',
-                                              border: 'none',
-                                              cursor: 'pointer',
-                                              color: '#64748b',
-                                              padding: '2px'
-                                            }}
-                                            title="Edit this specific time, day or room"
-                                          >
-                                            <Edit3 size={12} />
-                                          </button>
-                                        </div>
-
-                                        <div style={{ fontSize: '0.725rem', fontWeight: 600, color: '#334155', marginTop: '0.2rem', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                                          {course.courseTitle}
-                                        </div>
-
-                                        <div style={{ fontSize: '0.7rem', color: '#475569', marginTop: '0.25rem', fontWeight: 700 }}>
-                                          {course.teacherName}
-                                        </div>
-
-                                        <div style={{ fontSize: '0.675rem', color: '#0284c7', display: 'flex', alignItems: 'center', gap: '0.2rem', marginTop: '0.15rem' }}>
-                                          <Phone size={10} />
-                                          <span>{course.teacherPhone || 'N/A'}</span>
-                                        </div>
-
-                                        <div style={{ fontSize: '0.675rem', color: '#64748b', marginTop: '0.15rem' }}>
-                                          📍 {slot.roomNumber || course.roomNumber || 'Room 401'}
-                                        </div>
-                                      </div>
-                                    );
-                                  })}
-                                </div>
-                              )}
-                            </td>
-                          );
-                        })}
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-
-              {/* Faculty Contact Directory Table */}
-              <div className="card" style={{ padding: '1.5rem', background: '#ffffff', marginBottom: '2rem' }}>
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1.25rem' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                    <Users size={20} color="#2563eb" />
-                    <h3 style={{ fontSize: '1.15rem', fontWeight: 800, margin: 0, color: '#0f172a' }}>
-                      Course & Faculty Contact Directory
-                    </h3>
-                  </div>
-                  <span style={{ fontSize: '0.75rem', color: '#64748b' }}>
-                    Included in printed copies & official notifications
-                  </span>
-                </div>
-
-                <div style={{ overflowX: 'auto' }}>
-                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.875rem' }}>
-                    <thead>
-                      <tr style={{ background: '#f8fafc', borderBottom: '2px solid #e2e8f0', color: '#475569', fontWeight: 800 }}>
-                        <th style={{ padding: '0.75rem', textAlign: 'left' }}>Course Code</th>
-                        <th style={{ padding: '0.75rem', textAlign: 'left' }}>Course Title</th>
-                        <th style={{ padding: '0.75rem', textAlign: 'center' }}>Type</th>
-                        <th style={{ padding: '0.75rem', textAlign: 'center' }}>Credits</th>
-                        <th style={{ padding: '0.75rem', textAlign: 'left' }}>Assigned Faculty</th>
-                        <th style={{ padding: '0.75rem', textAlign: 'center' }}>Dept</th>
-                        <th style={{ padding: '0.75rem', textAlign: 'left' }}>Contact Number</th>
-                        <th style={{ padding: '0.75rem', textAlign: 'center' }}>Room</th>
-                        <th style={{ padding: '0.75rem', textAlign: 'center' }}>Actions</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {configuredCourses.map((c, cIdx) => (
-                        <tr key={c.courseId} style={{ borderBottom: '1px solid #f1f5f9' }}>
-                          <td style={{ padding: '0.75rem', fontWeight: 800, color: '#1e3a8a' }}>{c.courseCode}</td>
-                          <td style={{ padding: '0.75rem', fontWeight: 600 }}>{c.courseTitle}</td>
-                          <td style={{ padding: '0.75rem', textAlign: 'center' }}>
-                            <span style={{
-                              fontSize: '0.7rem',
-                              fontWeight: 800,
-                              background: c.courseType === 'LAB' ? '#faf5ff' : '#eff6ff',
-                              color: c.courseType === 'LAB' ? '#7c3aed' : '#2563eb',
-                              border: c.courseType === 'LAB' ? '1px solid #d8b4fe' : '1px solid #bfdbfe',
-                              padding: '0.15rem 0.5rem',
-                              borderRadius: '6px'
-                            }}>
-                              {c.courseType}
-                            </span>
-                          </td>
-                          <td style={{ padding: '0.75rem', textAlign: 'center', fontWeight: 700 }}>{c.creditHours}</td>
-                          <td style={{ padding: '0.75rem', fontWeight: 700 }}>{c.teacherName || 'TBA'}</td>
-                          <td style={{ padding: '0.75rem', textAlign: 'center', fontWeight: 600 }}>{c.teacherDept || 'CSE'}</td>
-                          <td style={{ padding: '0.75rem', fontWeight: 700, color: '#0284c7' }}>{c.teacherPhone || 'N/A'}</td>
-                          <td style={{ padding: '0.75rem', textAlign: 'center', fontWeight: 600 }}>{c.roomNumber || 'TBA'}</td>
-                          <td style={{ padding: '0.75rem', textAlign: 'center' }}>
-                            <button
-                              onClick={() => handleOpenEditModal(c, 'COURSE')}
-                              className="btn btn-secondary"
-                              style={{ padding: '0.3rem 0.6rem', fontSize: '0.75rem' }}
-                            >
-                              <Edit3 size={12} />
-                              <span>Edit</span>
-                            </button>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            </div>
-          ) : (
-            /* EXAM ROUTINE TIMETABLE */
-            <div className="card" style={{ padding: '1.5rem', background: '#ffffff', marginBottom: '2rem' }}>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1.25rem' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                  <GraduationCap size={22} color="#7c3aed" />
-                  <h3 style={{ fontSize: '1.15rem', fontWeight: 800, margin: 0, color: '#0f172a' }}>
-                    Semester Final Examination Timetable
-                  </h3>
-                </div>
-                <span style={{ fontSize: '0.75rem', color: '#64748b' }}>
-                  Official format with hall distribution & invigilator contacts
-                </span>
-              </div>
-
-              <div style={{ overflowX: 'auto' }}>
-                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.875rem' }}>
-                  <thead>
-                    <tr style={{ background: '#f8fafc', borderBottom: '2px solid #e2e8f0', color: '#475569', fontWeight: 800 }}>
-                      <th style={{ padding: '0.75rem', textAlign: 'center', width: '50px' }}>Sl</th>
-                      <th style={{ padding: '0.75rem', textAlign: 'left' }}>Date</th>
-                      <th style={{ padding: '0.75rem', textAlign: 'center' }}>Day</th>
-                      <th style={{ padding: '0.75rem', textAlign: 'center' }}>Time</th>
-                      <th style={{ padding: '0.75rem', textAlign: 'left' }}>Course Code</th>
-                      <th style={{ padding: '0.75rem', textAlign: 'left' }}>Course Title</th>
-                      <th style={{ padding: '0.75rem', textAlign: 'center' }}>Room / Hall</th>
-                      <th style={{ padding: '0.75rem', textAlign: 'left' }}>Invigilator / Teacher</th>
-                      <th style={{ padding: '0.75rem', textAlign: 'left' }}>Contact</th>
-                      <th style={{ padding: '0.75rem', textAlign: 'center' }}>Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {configuredExams.map((ex, idx) => (
-                      <tr key={ex.courseId} style={{ borderBottom: '1px solid #f1f5f9' }}>
-                        <td style={{ padding: '0.85rem 0.5rem', textAlign: 'center', fontWeight: 800 }}>{ex.serial || (idx + 1)}</td>
-                        <td style={{ padding: '0.85rem 0.5rem', fontWeight: 800, color: '#1e3a8a' }}>{ex.date || 'TBA'}</td>
-                        <td style={{ padding: '0.85rem 0.5rem', textAlign: 'center', fontWeight: 700 }}>{ex.day || '-'}</td>
-                        <td style={{ padding: '0.85rem 0.5rem', textAlign: 'center', fontWeight: 700, color: '#059669' }}>{ex.timeSlot}</td>
-                        <td style={{ padding: '0.85rem 0.5rem', fontWeight: 800 }}>{ex.courseCode}</td>
-                        <td style={{ padding: '0.85rem 0.5rem', fontWeight: 600 }}>{ex.courseTitle}</td>
-                        <td style={{ padding: '0.85rem 0.5rem', textAlign: 'center', fontWeight: 600 }}>{ex.roomNumber}</td>
-                        <td style={{ padding: '0.85rem 0.5rem', fontWeight: 700 }}>{ex.invigilatorName}</td>
-                        <td style={{ padding: '0.85rem 0.5rem', fontWeight: 700, color: '#0284c7' }}>{ex.teacherPhone}</td>
-                        <td style={{ padding: '0.85rem 0.5rem', textAlign: 'center' }}>
-                          <button
-                            onClick={() => handleOpenEditModal(ex, 'EXAM')}
-                            className="btn btn-secondary"
-                            style={{ padding: '0.3rem 0.6rem', fontSize: '0.75rem' }}
-                          >
-                            <Edit3 size={12} />
-                            <span>Edit</span>
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          )}
         </div>
       )}
 
-      {/* INTERACTIVE EDIT MODAL */}
-      {isEditModalOpen && editingItem && (
-        <div style={{
-          position: 'fixed',
-          inset: 0,
-          background: 'rgba(15, 23, 42, 0.65)',
-          backdropFilter: 'blur(4px)',
-          zIndex: 9999,
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          padding: '1rem',
-          animation: 'fadeIn 0.2s ease'
-        }}>
-          <div style={{
-            background: '#ffffff',
-            borderRadius: '16px',
-            width: '100%',
-            maxWidth: '540px',
-            boxShadow: '0 20px 40px rgba(0,0,0,0.3)',
-            overflow: 'hidden'
-          }}>
-            <div style={{
-              padding: '1.25rem 1.5rem',
-              borderBottom: '1px solid #e2e8f0',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              background: '#f8fafc'
-            }}>
-              <div>
-                <h3 style={{ fontSize: '1.1rem', fontWeight: 800, margin: 0, color: '#0f172a' }}>
-                  {editingItem.editType === 'SLOT' ? '✏️ Edit Class Timing & Room' : (editingItem.editType === 'EXAM' ? '✏️ Edit Exam Schedule' : '✏️ Edit Course Details')}
-                </h3>
-                <p style={{ fontSize: '0.75rem', color: '#64748b', margin: '0.2rem 0 0 0' }}>
-                  {editingItem.courseCode} - {editingItem.courseTitle}
-                </p>
-              </div>
-              <button
-                onClick={() => setIsEditModalOpen(false)}
-                style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: '#64748b' }}
-              >
-                <X size={20} />
-              </button>
+      {/* 12. DELETE ROUTINE CONFIRMATION MODAL */}
+      {deleteTargetRoutine && (
+        <div 
+          className="modal-backdrop-custom"
+          style={{
+            position: 'fixed',
+            inset: 0,
+            zIndex: 1000,
+            backgroundColor: 'rgba(15, 23, 42, 0.75)',
+            backdropFilter: 'blur(6px)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: '1.25rem'
+          }}
+        >
+          <div 
+            style={{
+              background: '#ffffff',
+              borderRadius: '20px',
+              maxWidth: '460px',
+              width: '100%',
+              padding: '1.5rem',
+              boxShadow: '0 25px 50px -12px rgba(0,0,0,0.35)',
+              border: '1px solid #e2e8f0'
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', color: '#dc2626' }}>
+              <AlertTriangle size={24} />
+              <h3 style={{ margin: 0, fontSize: '1.15rem', fontWeight: 800 }}>Confirm Deletion</h3>
             </div>
-
-            <div style={{ padding: '1.5rem', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-              {editingItem.editType === 'SLOT' && (
-                <>
-                  <div>
-                    <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 800, color: '#334155', marginBottom: '0.35rem' }}>
-                      Weekday:
-                    </label>
-                    <select
-                      value={editingItem.newDay || editingItem.oldDay}
-                      onChange={(e) => setEditingItem({ ...editingItem, newDay: e.target.value })}
-                      style={{ width: '100%', padding: '0.6rem 0.8rem', borderRadius: '8px', border: '1.5px solid #cbd5e1', fontSize: '0.85rem', fontWeight: 700 }}
-                    >
-                      {weekdays.map(d => (
-                        <option key={d} value={d}>{d}</option>
-                      ))}
-                    </select>
-                  </div>
-
-                  <div>
-                    <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 800, color: '#334155', marginBottom: '0.35rem' }}>
-                      Time Period:
-                    </label>
-                    <select
-                      value={editingItem.newTimeSlot || editingItem.oldTimeSlot}
-                      onChange={(e) => setEditingItem({ ...editingItem, newTimeSlot: e.target.value })}
-                      style={{ width: '100%', padding: '0.6rem 0.8rem', borderRadius: '8px', border: '1.5px solid #cbd5e1', fontSize: '0.85rem', fontWeight: 700 }}
-                    >
-                      {standardPeriods.map(p => (
-                        <option key={p} value={p}>{p}</option>
-                      ))}
-                      {standardLabBlocks.map(b => (
-                        <option key={b} value={b.split(' (')[0]}>{b}</option>
-                      ))}
-                    </select>
-                  </div>
-
-                  <div>
-                    <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 800, color: '#334155', marginBottom: '0.35rem' }}>
-                      Classroom / Lab Location:
-                    </label>
-                    <input
-                      type="text"
-                      value={editingItem.newRoomNumber || ''}
-                      onChange={(e) => setEditingItem({ ...editingItem, newRoomNumber: e.target.value })}
-                      style={{ width: '100%', padding: '0.6rem 0.8rem', borderRadius: '8px', border: '1.5px solid #cbd5e1', fontSize: '0.85rem', fontWeight: 600 }}
-                    />
-                  </div>
-                </>
-              )}
-
-              {editingItem.editType === 'EXAM' && (
-                <>
-                  <div>
-                    <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 800, color: '#334155', marginBottom: '0.35rem' }}>
-                      Exam Date:
-                    </label>
-                    <input
-                      type="date"
-                      value={editingItem.date || ''}
-                      onChange={(e) => {
-                        const val = e.target.value;
-                        let dName = '';
-                        if (val) {
-                          const d = new Date(val);
-                          const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
-                          dName = dayNames[d.getDay()];
-                        }
-                        setEditingItem({ ...editingItem, date: val, day: dName });
-                      }}
-                      style={{ width: '100%', padding: '0.6rem 0.8rem', borderRadius: '8px', border: '1.5px solid #cbd5e1', fontSize: '0.85rem', fontWeight: 700 }}
-                    />
-                  </div>
-
-                  <div>
-                    <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 800, color: '#334155', marginBottom: '0.35rem' }}>
-                      Time Slot:
-                    </label>
-                    <input
-                      type="text"
-                      value={editingItem.timeSlot || ''}
-                      onChange={(e) => setEditingItem({ ...editingItem, timeSlot: e.target.value })}
-                      style={{ width: '100%', padding: '0.6rem 0.8rem', borderRadius: '8px', border: '1.5px solid #cbd5e1', fontSize: '0.85rem', fontWeight: 600 }}
-                    />
-                  </div>
-
-                  <div>
-                    <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 800, color: '#334155', marginBottom: '0.35rem' }}>
-                      Exam Hall / Room:
-                    </label>
-                    <input
-                      type="text"
-                      value={editingItem.roomNumber || ''}
-                      onChange={(e) => setEditingItem({ ...editingItem, roomNumber: e.target.value })}
-                      style={{ width: '100%', padding: '0.6rem 0.8rem', borderRadius: '8px', border: '1.5px solid #cbd5e1', fontSize: '0.85rem', fontWeight: 600 }}
-                    />
-                  </div>
-
-                  <div>
-                    <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 800, color: '#334155', marginBottom: '0.35rem' }}>
-                      Chief Invigilator:
-                    </label>
-                    <input
-                      type="text"
-                      value={editingItem.invigilatorName || ''}
-                      onChange={(e) => setEditingItem({ ...editingItem, invigilatorName: e.target.value })}
-                      style={{ width: '100%', padding: '0.6rem 0.8rem', borderRadius: '8px', border: '1.5px solid #cbd5e1', fontSize: '0.85rem', fontWeight: 600 }}
-                    />
-                  </div>
-
-                  <div>
-                    <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 800, color: '#334155', marginBottom: '0.35rem' }}>
-                      Contact Phone Number:
-                    </label>
-                    <input
-                      type="text"
-                      value={editingItem.teacherPhone || ''}
-                      onChange={(e) => setEditingItem({ ...editingItem, teacherPhone: e.target.value })}
-                      style={{ width: '100%', padding: '0.6rem 0.8rem', borderRadius: '8px', border: '1.5px solid #cbd5e1', fontSize: '0.85rem', fontWeight: 700 }}
-                    />
-                  </div>
-                </>
-              )}
-
-              {editingItem.editType === 'COURSE' && (
-                <>
-                  <div>
-                    <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 800, color: '#334155', marginBottom: '0.35rem' }}>
-                      Course Teacher Name:
-                    </label>
-                    <input
-                      type="text"
-                      value={editingItem.teacherName || ''}
-                      onChange={(e) => setEditingItem({ ...editingItem, teacherName: e.target.value })}
-                      style={{ width: '100%', padding: '0.6rem 0.8rem', borderRadius: '8px', border: '1.5px solid #cbd5e1', fontSize: '0.85rem', fontWeight: 600 }}
-                    />
-                  </div>
-
-                  <div>
-                    <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 800, color: '#334155', marginBottom: '0.35rem' }}>
-                      Department:
-                    </label>
-                    <input
-                      type="text"
-                      value={editingItem.teacherDept || ''}
-                      onChange={(e) => setEditingItem({ ...editingItem, teacherDept: e.target.value })}
-                      style={{ width: '100%', padding: '0.6rem 0.8rem', borderRadius: '8px', border: '1.5px solid #cbd5e1', fontSize: '0.85rem', fontWeight: 600 }}
-                    />
-                  </div>
-
-                  <div>
-                    <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 800, color: '#334155', marginBottom: '0.35rem' }}>
-                      Teacher Phone Number:
-                    </label>
-                    <input
-                      type="text"
-                      value={editingItem.teacherPhone || ''}
-                      onChange={(e) => setEditingItem({ ...editingItem, teacherPhone: e.target.value })}
-                      style={{ width: '100%', padding: '0.6rem 0.8rem', borderRadius: '8px', border: '1.5px solid #cbd5e1', fontSize: '0.85rem', fontWeight: 700 }}
-                    />
-                  </div>
-
-                  <div>
-                    <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 800, color: '#334155', marginBottom: '0.35rem' }}>
-                      Classroom / Lab:
-                    </label>
-                    <input
-                      type="text"
-                      value={editingItem.roomNumber || ''}
-                      onChange={(e) => setEditingItem({ ...editingItem, roomNumber: e.target.value })}
-                      style={{ width: '100%', padding: '0.6rem 0.8rem', borderRadius: '8px', border: '1.5px solid #cbd5e1', fontSize: '0.85rem', fontWeight: 600 }}
-                    />
-                  </div>
-                </>
-              )}
-            </div>
-
-            <div style={{
-              padding: '1rem 1.5rem',
-              background: '#f8fafc',
-              borderTop: '1px solid #e2e8f0',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'flex-end',
-              gap: '0.75rem'
-            }}>
+            <p style={{ margin: '0.85rem 0 1.25rem', fontSize: '0.85rem', color: '#475569', lineHeight: 1.5 }}>
+              Are you sure you want to delete routine <strong>"{deleteTargetRoutine.title}"</strong>? This will permanently remove its routine schedules.
+            </p>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.75rem' }}>
               <button
-                onClick={() => setIsEditModalOpen(false)}
-                className="btn btn-secondary"
-                style={{ fontSize: '0.85rem', padding: '0.5rem 1rem' }}
+                type="button"
+                onClick={() => setDeleteTargetRoutine(null)}
+                disabled={deletingRoutine}
+                style={{ padding: '0.5rem 1rem', borderRadius: '8px', border: '1px solid #cbd5e1', background: '#ffffff', color: '#475569', fontWeight: 700, fontSize: '0.82rem', cursor: 'pointer' }}
               >
                 Cancel
               </button>
               <button
-                onClick={handleSaveEdit}
-                className="btn btn-primary"
-                style={{ fontSize: '0.85rem', padding: '0.5rem 1.25rem', fontWeight: 700 }}
+                type="button"
+                onClick={handleDeleteRoutine}
+                disabled={deletingRoutine}
+                style={{ padding: '0.5rem 1.25rem', borderRadius: '8px', border: 'none', background: '#dc2626', color: '#ffffff', fontWeight: 800, fontSize: '0.82rem', cursor: 'pointer' }}
               >
-                Save Changes
+                {deletingRoutine ? 'Deleting...' : 'Delete Routine'}
               </button>
             </div>
           </div>
         </div>
       )}
 
-      {/* SAVED ROUTINES DRAWER MODAL */}
-      {isSavedDrawerOpen && (
-        <div style={{
-          position: 'fixed',
-          inset: 0,
-          background: 'rgba(15, 23, 42, 0.65)',
-          backdropFilter: 'blur(4px)',
-          zIndex: 9999,
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          padding: '1rem',
-          animation: 'fadeIn 0.2s ease'
-        }}>
-          <div style={{
-            background: '#ffffff',
-            borderRadius: '16px',
-            width: '100%',
-            maxWidth: '680px',
-            boxShadow: '0 20px 40px rgba(0,0,0,0.3)',
-            maxHeight: '85vh',
-            display: 'flex',
-            flexDirection: 'column',
-            overflow: 'hidden'
-          }}>
-            <div style={{
-              padding: '1.25rem 1.5rem',
-              borderBottom: '1px solid #e2e8f0',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              background: '#f8fafc'
-            }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                <FolderOpen size={20} color="#2563eb" />
-                <h3 style={{ fontSize: '1.15rem', fontWeight: 800, margin: 0, color: '#0f172a' }}>
-                  Saved Academic Routines ({savedRoutinesList.length})
-                </h3>
-              </div>
-              <button
-                onClick={() => setIsSavedDrawerOpen(false)}
-                style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: '#64748b' }}
-              >
-                <X size={20} />
-              </button>
-            </div>
-
-            <div style={{ flex: 1, overflowY: 'auto', padding: '1.25rem' }}>
-              {savedRoutinesList.length === 0 ? (
-                <div style={{ padding: '2.5rem', textAlign: 'center', color: '#94a3b8' }}>
-                  <CalendarClock size={40} style={{ margin: '0 auto 0.75rem', opacity: 0.5 }} />
-                  <p style={{ fontWeight: 600 }}>No saved routines found yet.</p>
-                  <p style={{ fontSize: '0.8rem', marginTop: '0.25rem' }}>Create a routine and click "Save Routine" or "Publish to Notice Board" to store it here.</p>
-                </div>
-              ) : (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem' }}>
-                  {savedRoutinesList.map(r => (
-                    <div
-                      key={r.id}
-                      style={{
-                        padding: '1rem',
-                        border: '1px solid #e2e8f0',
-                        borderRadius: '12px',
-                        background: '#ffffff',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'space-between',
-                        gap: '1rem',
-                        transition: 'all 0.15s ease'
-                      }}
-                    >
-                      <div>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                          <span style={{
-                            fontSize: '0.7rem',
-                            fontWeight: 800,
-                            background: r.type === 'CLASS_ROUTINE' ? '#eff6ff' : '#faf5ff',
-                            color: r.type === 'CLASS_ROUTINE' ? '#2563eb' : '#7c3aed',
-                            padding: '0.15rem 0.5rem',
-                            borderRadius: '6px'
-                          }}>
-                            {r.type === 'CLASS_ROUTINE' ? 'CLASS ROUTINE' : 'EXAM ROUTINE'}
-                          </span>
-                          <span style={{
-                            fontSize: '0.675rem',
-                            fontWeight: 800,
-                            background: r.status === 'PUBLISHED' ? '#dcfce7' : '#fef3c7',
-                            color: r.status === 'PUBLISHED' ? '#166534' : '#92400e',
-                            padding: '0.15rem 0.45rem',
-                            borderRadius: '4px'
-                          }}>
-                            {r.status}
-                          </span>
-                        </div>
-
-                        <h4 style={{ margin: '0.35rem 0 0.15rem', fontSize: '0.95rem', fontWeight: 800, color: '#0f172a' }}>
-                          {r.title}
-                        </h4>
-
-                        <div style={{ fontSize: '0.75rem', color: '#64748b' }}>
-                          {r.session_name || 'All Sessions'} &bull; {r.semester_name || 'All Semesters'} &bull; Created by {r.creator_name || 'Faculty Staff'}
-                        </div>
-                      </div>
-
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                        <button
-                          onClick={() => handleLoadSavedRoutine(r.id)}
-                          className="btn btn-primary"
-                          style={{ fontSize: '0.8rem', padding: '0.45rem 0.9rem', fontWeight: 700 }}
-                        >
-                          Load & Edit
-                        </button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }
-
-export default RoutineGeneratorView;

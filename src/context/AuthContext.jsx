@@ -12,6 +12,7 @@ export const DEMO_USERS = [
   { label: 'Student (Nusrat - Roll: 20230102)', email: 'student2@cse.univ.edu', password: 'Student@123', role: 'STUDENT' },
 ];
 
+
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
   const [token, setToken] = useState(localStorage.getItem('cse_token') || null);

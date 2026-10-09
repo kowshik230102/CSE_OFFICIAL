@@ -212,19 +212,19 @@ export function exportRoutineToWord({ title, type, sessionName, semesterName, ro
 
       <table class="sign-table">
         <tr>
-          <td style="width: 45%;">
-            <br/><br/>
+          <td style="width: 45%; text-align: center;">
+            <br/><br/><br/>
             _________________________________________<br/>
             <strong>Member Secretary</strong><br/>
             Academic Routine Committee<br/>
             Department of CSE, PUST
           </td>
           <td style="width: 10%;"></td>
-          <td style="width: 45%;">
-            <br/><br/>
+          <td style="width: 45%; text-align: center;">
+            <br/><br/><br/>
             _________________________________________<br/>
             <strong>Chairman</strong><br/>
-            Department of Computer Science & Engineering<br/>
+            Department of Computer Science and Engineering<br/>
             Pabna University of Science and Technology
           </td>
         </tr>
@@ -243,6 +243,221 @@ export function exportRoutineToWord({ title, type, sessionName, semesterName, ro
   downloadLink.href = url;
   const sanitizedTitle = (title || 'Academic_Routine').replace(/[^a-zA-Z0-9_-]/g, '_');
   downloadLink.download = `${sanitizedTitle}.doc`;
+  document.body.appendChild(downloadLink);
+  downloadLink.click();
+  document.body.removeChild(downloadLink);
+  URL.revokeObjectURL(url);
+}
+
+/**
+ * Official PUST Class Routine Word Exporter (5-day structure matching media sample)
+ */
+export function exportOfficialRoutineToWord({
+  title,
+  academicYear,
+  effectiveFrom,
+  semesters = [],
+  schedule = [],
+  teacherWorkloadMap = {}
+}) {
+  const effectiveDate = effectiveFrom || '15.07.2024';
+  const days = ['Saturday', 'Sunday', 'Monday', 'Tuesday', 'Wednesday'];
+  const periods = [
+    { id: 'p1', label: '1st (9:00-10:00)' },
+    { id: 'p2', label: '2nd (10:00-11:00)' },
+    { id: 'p3', label: '3rd (11:00-12:00)' },
+    { id: 'p4', label: '4th (12:00-01:00)' },
+    { id: 'break', label: 'BREAK (01:00-02:00)', isBreak: true },
+    { id: 'p5', label: '5th (02:00-03:00)' },
+    { id: 'p6', label: '6th (03:00-04:00)' },
+    { id: 'p7', label: '7th (04:00-05:00)' }
+  ];
+
+  const getCovered = (startId, span = 1) => {
+    const pIdx = periods.findIndex(p => p.id === startId);
+    if (pIdx === -1) return null;
+    const res = [];
+    for (let i = 0; i < span; i++) {
+      const idx = pIdx + i;
+      if (idx >= periods.length) return null;
+      if (periods[idx].isBreak) return null;
+      res.push(periods[idx].id);
+    }
+    return res;
+  };
+
+  let timetableHtmlRows = '';
+
+  days.forEach(day => {
+    if (semesters.length === 0) {
+      timetableHtmlRows += `
+        <tr>
+          <td style="border: 1px solid #000; padding: 6px; font-weight: bold; text-align: center; background-color: #f1f5f9;">${day}</td>
+          <td colspan="9" style="border: 1px solid #000; padding: 6px; text-align: center; color: #64748b;">No semesters added</td>
+        </tr>
+      `;
+      return;
+    }
+
+    semesters.forEach((sem, semIdx) => {
+      let cellsHtml = '';
+
+      periods.forEach(period => {
+        if (period.isBreak) {
+          if (semIdx === 0) {
+            cellsHtml += `
+              <td rowspan="${semesters.length}" style="border: 1px solid #000; padding: 4px; text-align: center; vertical-align: middle; background-color: #fef3c7; font-weight: bold; font-size: 8.5pt;">
+                BREAK<br/>(01:00-02:00)
+              </td>
+            `;
+          }
+          return;
+        }
+
+        const slotStarting = schedule.find(s => s.day === day && s.semesterId === sem.semesterId && s.periodId === period.id);
+        const slotCoveringEarlier = schedule.find(s => s.day === day && s.semesterId === sem.semesterId && s.periodId !== period.id && (s.coveredPeriods || getCovered(s.periodId, s.span || 1) || []).includes(period.id));
+
+        if (slotCoveringEarlier) {
+          return;
+        }
+
+        if (slotStarting) {
+          const span = slotStarting.span || 1;
+          const teacherDisplay = slotStarting.teacherShortCode || slotStarting.teacherName || 'TBA';
+          cellsHtml += `
+            <td colspan="${span}" style="border: 1px solid #000; padding: 6px; text-align: center; vertical-align: middle; background-color: #f8fafc;">
+              <div style="font-weight: bold; font-size: 9.5pt; color: #0f172a;">${slotStarting.courseCode}</div>
+              <div style="font-size: 8.5pt; color: #1e3a8a; font-weight: bold;">${teacherDisplay}</div>
+              <div style="font-size: 8pt; color: #475569;">${slotStarting.room || '501'}</div>
+            </td>
+          `;
+        } else {
+          cellsHtml += `
+            <td style="border: 1px solid #000; padding: 6px; text-align: center; color: #cbd5e1; font-size: 8pt;">-</td>
+          `;
+        }
+      });
+
+      timetableHtmlRows += `
+        <tr>
+          ${semIdx === 0 ? `<td rowspan="${semesters.length}" style="border: 1px solid #000; padding: 6px; font-weight: bold; text-align: center; vertical-align: middle; background-color: #f1f5f9;">${day}</td>` : ''}
+          <td style="border: 1px solid #000; padding: 6px; text-align: center; font-weight: bold; background-color: #e0e7ff; color: #312e81;">${sem.shortTerm || sem.termCode}</td>
+          ${cellsHtml}
+        </tr>
+      `;
+    });
+  });
+
+  const teachersList = Object.values(teacherWorkloadMap || {});
+  const teacherRows = teachersList.map(wl => `
+    <tr>
+      <td style="border: 1px solid #000; padding: 5px; font-weight: bold;">${wl.teacherName}</td>
+      <td style="border: 1px solid #000; padding: 5px;">${wl.designation || 'Faculty Member'}</td>
+      <td style="border: 1px solid #000; padding: 5px; text-align: center;">${wl.department || 'CSE'}</td>
+      <td style="border: 1px solid #000; padding: 5px; text-align: center; font-weight: bold;">${wl.shortCode || '—'}</td>
+      <td style="border: 1px solid #000; padding: 5px; text-align: center; font-weight: bold;">${wl.weeklyHours || 0} hrs/week</td>
+      <td style="border: 1px solid #000; padding: 5px;">${(wl.courses || []).map(c => `${c.courseCode} (${c.termCode})`).join(', ') || 'None'}</td>
+    </tr>
+  `).join('');
+
+  const wordHtml = `
+    <html xmlns:o='urn:schemas-microsoft-com:office:office' xmlns:w='urn:schemas-microsoft-com:office:word' xmlns='http://www.w3.org/TR/REC-html40'>
+    <head>
+      <meta charset='utf-8'>
+      <title>${title || 'Class Routine'}</title>
+      <style>
+        body { font-family: Arial, Helvetica, sans-serif; margin: 15px; color: #000000; }
+        .inst-header { text-align: center; margin-bottom: 12px; }
+        .inst-dept { font-size: 13pt; font-weight: bold; text-transform: uppercase; margin: 0; }
+        .inst-univ { font-size: 10pt; margin: 2px 0; }
+        .inst-title { font-size: 11pt; font-weight: bold; margin: 3px 0; }
+        .inst-sub { font-size: 9.5pt; font-style: italic; color: #333; }
+        table { width: 100%; border-collapse: collapse; margin-top: 8px; font-size: 8.5pt; }
+        th { border: 1px solid #000; padding: 4px; background-color: #0f172a; color: #ffffff; text-align: center; font-size: 8pt; font-weight: bold; }
+        td { border: 1px solid #000; }
+        .sign-table { width: 100%; margin-top: 40px; border: none; }
+        .sign-table td { border: none; text-align: center; font-size: 9.5pt; padding: 8px; }
+      </style>
+    </head>
+    <body>
+      <div class="inst-header">
+        <h2 class="inst-dept">Department of Computer Science & Engineering</h2>
+        <div class="inst-univ">Pabna University of Science and Technology, Pabna-6300</div>
+        <div class="inst-title">CLASS ROUTINE: ${title || 'Official Academic Schedule'}, Academic Year: ${academicYear || ''}</div>
+        <div class="inst-sub">Effective from: ${effectiveDate}</div>
+      </div>
+
+      <table>
+        <thead>
+          <tr>
+            <th style="width: 75px;">Day</th>
+            <th style="width: 45px;">Sem.</th>
+            <th>1st (9:00-10:00)</th>
+            <th>2nd (10:00-11:00)</th>
+            <th>3rd (11:00-12:00)</th>
+            <th>4th (12:00-01:00)</th>
+            <th style="background-color: #334155;">BREAK (01:00-02:00)</th>
+            <th>5th (02:00-03:00)</th>
+            <th>6th (03:00-04:00)</th>
+            <th>7th (04:00-05:00)</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${timetableHtmlRows}
+        </tbody>
+      </table>
+
+      ${teachersList.length > 0 ? `
+        <h4 style="margin: 20px 0 5px 0; font-size: 9.5pt; font-weight: bold;">List of Course Teachers & Weekly Class Load</h4>
+        <table>
+          <thead>
+            <tr>
+              <th style="text-align: left;">Teacher's Name</th>
+              <th style="text-align: left;">Designation</th>
+              <th>Department</th>
+              <th>Teacher Code</th>
+              <th>Weekly Load</th>
+              <th style="text-align: left;">Assigned Courses</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${teacherRows}
+          </tbody>
+        </table>
+      ` : ''}
+
+      <table class="sign-table">
+        <tr>
+          <td style="width: 45%; text-align: center;">
+            <br/><br/><br/>
+            _________________________________________<br/>
+            <strong>Member Secretary</strong><br/>
+            Academic Routine Committee<br/>
+            Department of CSE, PUST
+          </td>
+          <td style="width: 10%;"></td>
+          <td style="width: 45%; text-align: center;">
+            <br/><br/><br/>
+            _________________________________________<br/>
+            <strong>Chairman</strong><br/>
+            Department of Computer Science and Engineering<br/>
+            Pabna University of Science and Technology
+          </td>
+        </tr>
+      </table>
+    </body>
+    </html>
+  `;
+
+  const blob = new Blob(['\ufeff', wordHtml], {
+    type: 'application/msword;charset=utf-8'
+  });
+
+  const url = URL.createObjectURL(blob);
+  const downloadLink = document.createElement('a');
+  downloadLink.href = url;
+  const sanitizedTitle = (title || 'Class_Routine').replace(/[^a-zA-Z0-9_-]/g, '_');
+  downloadLink.download = `${sanitizedTitle}_PUST.doc`;
   document.body.appendChild(downloadLink);
   downloadLink.click();
   document.body.removeChild(downloadLink);

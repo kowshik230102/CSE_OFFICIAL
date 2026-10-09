@@ -2224,10 +2224,15 @@ body {
    ========================================================================== */
 @page {
   size: A4 landscape;
-  margin: 5mm 6mm 5mm 6mm;
+  margin: 4mm 5mm;
 }
 
 @media print {
+  @page {
+    size: A4 landscape;
+    margin: 4mm 5mm;
+  }
+
   /* Hide interactive and non-printable elements */
   .no-print,
   .top-nav,
@@ -2495,13 +2500,217 @@ body {
   table:not(.student-sheet-table):not(.sig-table) {
     width: 100% !important;
     border-collapse: collapse !important;
-    font-size: 8.5pt !important;
+    font-size: 8pt !important;
   }
 
   table:not(.student-sheet-table):not(.sig-table) th,
   table:not(.student-sheet-table):not(.sig-table) td {
-    border: 1px solid #cbd5e1 !important;
-    padding: 4px 6px !important;
+    border: 1px solid #334155 !important;
+    padding: 3px 4px !important;
+  }
+
+  /* =========================================================================
+     Strict 1-Page A4 Landscape Routine Print Formatting
+     ========================================================================= */
+  .routine-management-page {
+    padding: 0 !important;
+    margin: 0 !important;
+    gap: 0 !important;
+    display: block !important;
+  }
+
+  .official-routine-print-wrapper {
+    display: flex !important;
+    flex-direction: column !important;
+    justify-content: space-between !important;
+    width: 100% !important;
+    height: 198mm !important;
+    min-height: 198mm !important;
+    max-height: 198mm !important;
+    box-sizing: border-box !important;
+    overflow: hidden !important;
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
+    page-break-after: avoid !important;
+    page-break-before: avoid !important;
+    margin: 0 auto !important;
+    padding: 0 !important;
+    background: #ffffff !important;
+  }
+
+  .official-routine-header {
+    display: block !important;
+    text-align: center !important;
+    margin: 0 0 3px 0 !important;
+    border-bottom: 2px solid #0f172a !important;
+    padding: 2px 0 4px 0 !important;
+    border-radius: 0 !important;
+    border-left: none !important;
+    border-right: none !important;
+    border-top: none !important;
+    box-shadow: none !important;
+    flex-shrink: 0 !important;
+  }
+
+  .official-routine-header .univ-title {
+    font-size: 13pt !important;
+    font-weight: 900 !important;
+    color: #0f172a !important;
+    margin: 0 !important;
+    line-height: 1.2 !important;
+    letter-spacing: 0.5px !important;
+    text-transform: uppercase !important;
+  }
+
+  .official-routine-header .dept-title {
+    font-size: 10.5pt !important;
+    font-weight: 800 !important;
+    color: #1e3a8a !important;
+    margin: 2px 0 0 0 !important;
+    line-height: 1.2 !important;
+  }
+
+  .official-routine-header .routine-meta {
+    font-size: 8pt !important;
+    color: #334155 !important;
+    margin-top: 2px !important;
+    line-height: 1.2 !important;
+    font-weight: 600 !important;
+  }
+
+  .official-routine-print-container {
+    width: 100% !important;
+    flex: 1 1 auto !important;
+    display: flex !important;
+    flex-direction: column !important;
+    margin: 3px 0 !important;
+    padding: 0 !important;
+    background: #ffffff !important;
+    border: 1.5px solid #0f172a !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
+    overflow: hidden !important;
+    box-sizing: border-box !important;
+  }
+
+  .official-routine-print-container .official-table-scroll-wrapper,
+  .official-routine-print-container > div {
+    height: 100% !important;
+    display: flex !important;
+    flex-direction: column !important;
+    overflow: visible !important;
+    flex: 1 1 auto !important;
+  }
+
+  .official-timetable-grid {
+    width: 100% !important;
+    min-width: 100% !important;
+    height: 100% !important;
+    flex: 1 1 auto !important;
+    border-collapse: collapse !important;
+    table-layout: fixed !important;
+  }
+
+  .official-timetable-grid thead {
+    flex-shrink: 0 !important;
+  }
+
+  .official-timetable-grid thead th {
+    padding: 3.5px 2px !important;
+    font-size: 7.8pt !important;
+    font-weight: 800 !important;
+    line-height: 1.15 !important;
+    border: 1px solid #0f172a !important;
+    background: #0f172a !important;
+    color: #ffffff !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  .official-timetable-grid tbody {
+    height: 100% !important;
+  }
+
+  .official-timetable-grid tbody tr {
+    height: auto !important;
+  }
+
+  .official-timetable-grid tbody td {
+    border: 1px solid #475569 !important;
+    padding: 3.5px 3px !important;
+    font-size: 7.6pt !important;
+    line-height: 1.15 !important;
+    vertical-align: middle !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  .official-timetable-grid tbody td > div {
+    padding: 2px 2px !important;
+    margin: 0 !important;
+    box-shadow: none !important;
+    border-radius: 2px !important;
+    border: none !important;
+    background: transparent !important;
+  }
+
+  .official-timetable-grid strong {
+    font-size: 8.2pt !important;
+    font-weight: 800 !important;
+    color: #0f172a !important;
+  }
+
+  .official-routine-footer {
+    display: flex !important;
+    justify-content: space-between !important;
+    align-items: flex-end !important;
+    margin-top: 3px !important;
+    padding: 3px 4px 0 4px !important;
+    border: none !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
+    flex-shrink: 0 !important;
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
+  }
+
+  .official-routine-footer > div:first-child {
+    max-width: 58% !important;
+    font-size: 6.8pt !important;
+    line-height: 1.25 !important;
+    color: #334155 !important;
+  }
+
+  .chairman-signature-block {
+    display: block !important;
+    text-align: center !important;
+    min-width: 220px !important;
+    padding: 0 !important;
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
+  }
+
+  .chairman-signature-block > div:first-child {
+    height: 38px !important;
+  }
+
+  .chairman-signature-block > div:nth-child(2) {
+    font-size: 8.5pt !important;
+    font-weight: 800 !important;
+    padding-top: 3px !important;
+    border-top: 1.5px solid #0f172a !important;
+  }
+
+  .chairman-signature-block > div:nth-child(3) {
+    font-size: 7.5pt !important;
+    font-weight: 700 !important;
+    color: #1e3a8a !important;
+    margin-top: 1px !important;
+  }
+
+  .chairman-signature-block > div:nth-child(4) {
+    font-size: 7pt !important;
+    color: #475569 !important;
   }
 }
 

@@ -291,7 +291,7 @@ export const CollapsibleSidebar = ({
                 }}
               >
                 <CalendarCheck size={16} style={{ color: activeNavTab === 'make-routine' ? '#818cf8' : '#a5b4fc' }} />
-                <span>Make Routine</span>
+                <span>Create Routine</span>
                 <span style={{
                   marginLeft: 'auto',
                   fontSize: '0.65rem',
