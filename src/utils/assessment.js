@@ -28,37 +28,27 @@ export const computeStudentCA = (ct1, ct2, ct3, attendance) => {
   // Sort descending to find best 2
   availableCTs.sort((a, b) => b.val - a.val);
 
-  let best2Sum = 0;
+  const isAttendanceEntered = att !== null && att !== undefined && !isNaN(att);
+  const isCAComplete = availableCTs.length >= 2 && isAttendanceEntered;
+
+  let best2Sum = null;
   const countedCTs = new Set();
   if (availableCTs.length >= 2) {
-    best2Sum = availableCTs[0].val + availableCTs[1].val;
+    best2Sum = Math.round((availableCTs[0].val + availableCTs[1].val) * 10) / 10;
     countedCTs.add(availableCTs[0].num);
     countedCTs.add(availableCTs[1].num);
-  } else if (availableCTs.length === 1) {
-    best2Sum = availableCTs[0].val;
-    countedCTs.add(availableCTs[0].num);
   }
 
-  const attScore = att !== null ? att : 0;
-  const hasAnyData = availableCTs.length > 0 || att !== null;
-  const totalCA = hasAnyData ? Math.round((best2Sum + attScore) * 10) / 10 : null;
+  const attScore = isAttendanceEntered ? att : null;
+  const hasAnyData = availableCTs.length > 0 || isAttendanceEntered;
+  const totalCA = isCAComplete ? Math.round((best2Sum + attScore) * 10) / 10 : null;
 
   // Grade calculation (out of 30 marks)
-  // >= 80% (>= 24.0) : A+ (4.00)
-  // >= 75% (>= 22.5) : A  (3.75)
-  // >= 70% (>= 21.0) : A- (3.50)
-  // >= 65% (>= 19.5) : B+ (3.25)
-  // >= 60% (>= 18.0) : B  (3.00)
-  // >= 55% (>= 16.5) : B- (2.75)
-  // >= 50% (>= 15.0) : C+ (2.50)
-  // >= 45% (>= 13.5) : C  (2.25)
-  // >= 40% (>= 12.0) : D  (2.00)
-  // <  40% (< 12.0)  : F  (0.00)
   let grade = '—';
   let gradeClass = 'grade-none';
   let gpa = '0.00';
 
-  if (totalCA !== null) {
+  if (isCAComplete && totalCA !== null) {
     if (totalCA >= 24.0) { grade = 'A+'; gradeClass = 'grade-aplus'; gpa = '4.00'; }
     else if (totalCA >= 22.5) { grade = 'A'; gradeClass = 'grade-a'; gpa = '3.75'; }
     else if (totalCA >= 21.0) { grade = 'A-'; gradeClass = 'grade-aminus'; gpa = '3.50'; }
@@ -69,6 +59,9 @@ export const computeStudentCA = (ct1, ct2, ct3, attendance) => {
     else if (totalCA >= 13.5) { grade = 'C'; gradeClass = 'grade-c'; gpa = '2.25'; }
     else if (totalCA >= 12.0) { grade = 'D'; gradeClass = 'grade-d'; gpa = '2.00'; }
     else { grade = 'F'; gradeClass = 'grade-f'; gpa = '0.00'; }
+  } else if (hasAnyData) {
+    grade = 'Incomplete';
+    gradeClass = 'grade-incomplete';
   }
 
   return {
@@ -76,20 +69,22 @@ export const computeStudentCA = (ct1, ct2, ct3, attendance) => {
     c2,
     c3,
     att,
-    best2Sum: Math.round(best2Sum * 10) / 10,
-    attScore: Math.round(attScore * 10) / 10,
+    best2Sum,
+    attScore,
     totalCA,
     grade,
     gradeClass,
     gpa,
     countedCTs,
     hasAnyData,
+    isCAComplete,
+    isIncomplete: !isCAComplete && hasAnyData
   };
 };
 
 export const computeClassRanks = (studentsWithCA) => {
-  // studentsWithCA: array of { studentId, totalCA }
-  const valid = studentsWithCA.filter((s) => s.totalCA !== null);
+  // studentsWithCA: array of { studentId, totalCA, isCAComplete }
+  const valid = studentsWithCA.filter((s) => s.totalCA !== null && (s.isCAComplete !== false));
   valid.sort((a, b) => b.totalCA - a.totalCA);
 
   const rankMap = {};

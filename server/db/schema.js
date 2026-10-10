@@ -300,15 +300,6 @@ function initializeDatabase() {
     try { db.exec(q); } catch (e) { /* Column already exists */ }
   }
 
-  // Gracefully migrate semesters table columns
-  const semesterExtraCols = [
-    `ALTER TABLE semesters ADD COLUMN year INTEGER`,
-    `ALTER TABLE semesters ADD COLUMN semester INTEGER`
-  ];
-  for (const q of semesterExtraCols) {
-    try { db.exec(q); } catch (e) { /* Column already exists */ }
-  }
-
   // Gracefully migrate routines table columns for multi-semester routine management
   const routineExtraCols = [
     `ALTER TABLE routines ADD COLUMN department TEXT DEFAULT 'CSE'`,
@@ -325,6 +316,24 @@ function initializeDatabase() {
   try {
     db.exec(`ALTER TABLE courses ADD COLUMN lifecycle_status TEXT DEFAULT 'ACTIVE'`);
   } catch (e) { /* Column already exists */ }
+
+  // Gracefully migrate semesters table columns for Regular Assessment lifecycle
+  const semesterExtraCols = [
+    `ALTER TABLE semesters ADD COLUMN year INTEGER`,
+    `ALTER TABLE semesters ADD COLUMN semester INTEGER`,
+    `ALTER TABLE semesters ADD COLUMN start_date DATE`,
+    `ALTER TABLE semesters ADD COLUMN end_date DATE`,
+    `ALTER TABLE semesters ADD COLUMN class_end_date DATE`,
+    `ALTER TABLE semesters ADD COLUMN assessment_deadline DATE`,
+    `ALTER TABLE semesters ADD COLUMN status TEXT DEFAULT 'Running'`,
+    `ALTER TABLE semesters ADD COLUMN notes TEXT`,
+    `ALTER TABLE semesters ADD COLUMN is_finalized INTEGER DEFAULT 0`,
+    `ALTER TABLE semesters ADD COLUMN is_published INTEGER DEFAULT 0`,
+    `ALTER TABLE semesters ADD COLUMN published_at DATETIME`
+  ];
+  for (const q of semesterExtraCols) {
+    try { db.exec(q); } catch (e) { /* Column already exists */ }
+  }
 
   // 14. ROUTINE VERSIONS & AUDIT LOG TABLE
   db.exec(`
@@ -356,6 +365,57 @@ function initializeDatabase() {
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       UNIQUE(name, department)
     );
+
+    -- 15. COURSE ASSESSMENTS LIFECYCLE & AUDIT LOG TABLE
+    CREATE TABLE IF NOT EXISTS course_assessments (
+      id TEXT PRIMARY KEY,
+      course_id TEXT NOT NULL REFERENCES courses(id) ON DELETE CASCADE,
+      semester_id TEXT NOT NULL REFERENCES semesters(id) ON DELETE CASCADE,
+      session_id TEXT NOT NULL REFERENCES academic_sessions(id) ON DELETE CASCADE,
+      final_max_marks REAL DEFAULT 70.0,
+      grading_scale TEXT,
+      status TEXT DEFAULT 'Running', -- 'Upcoming', 'Running', 'Assessment Submission', 'Finalized', 'Result Published', 'Archived'
+      submitted_by TEXT REFERENCES users(id) ON DELETE SET NULL,
+      submitted_at DATETIME,
+      finalized_by TEXT REFERENCES users(id) ON DELETE SET NULL,
+      finalized_at DATETIME,
+      is_finalized INTEGER DEFAULT 0,
+      published_by TEXT REFERENCES users(id) ON DELETE SET NULL,
+      published_at DATETIME,
+      is_published INTEGER DEFAULT 0,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE(course_id, semester_id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_course_assessments_sem ON course_assessments(semester_id, course_id);
+    CREATE INDEX IF NOT EXISTS idx_course_assessments_sess ON course_assessments(session_id, status);
+  `);
+
+  // Gracefully migrate course_assessments table columns
+  try { db.exec(`ALTER TABLE course_assessments ADD COLUMN is_finalized INTEGER DEFAULT 0`); } catch (e) {}
+  try { db.exec(`ALTER TABLE course_assessments ADD COLUMN is_published INTEGER DEFAULT 0`); } catch (e) {}
+  try { db.exec(`ALTER TABLE course_assessments ADD COLUMN published_at DATETIME`); } catch (e) {}
+  try { db.exec(`ALTER TABLE course_assessments ADD COLUMN finalized_at DATETIME`); } catch (e) {}
+  try { db.exec(`ALTER TABLE course_assessments ADD COLUMN submitted_at DATETIME`); } catch (e) {}
+
+  db.exec(`
+
+    CREATE TABLE IF NOT EXISTS assessment_audit_logs (
+      id TEXT PRIMARY KEY,
+      course_id TEXT REFERENCES courses(id) ON DELETE CASCADE,
+      semester_id TEXT REFERENCES semesters(id) ON DELETE CASCADE,
+      session_id TEXT REFERENCES academic_sessions(id) ON DELETE CASCADE,
+      action TEXT NOT NULL, -- 'STATUS_CHANGE', 'REOPEN_ASSESSMENT', 'FINALIZE', 'PUBLISH', 'SUBMIT', 'UPDATE_MARKS'
+      performed_by TEXT NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+      performed_by_name TEXT,
+      previous_status TEXT,
+      new_status TEXT,
+      reason TEXT NOT NULL,
+      metadata TEXT,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE INDEX IF NOT EXISTS idx_assessment_audit_logs_course ON assessment_audit_logs(course_id, created_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_assessment_audit_logs_sem ON assessment_audit_logs(semester_id, created_at DESC);
   `);
 
   // Curriculum, enrollment, and results indexes
@@ -371,6 +431,23 @@ function initializeDatabase() {
   for (const q of extraIndexes) {
     try { db.exec(q); } catch (e) { /* Index already exists */ }
   }
+
+  // Gracefully populate year, semester numbers and status on existing semester records
+  try {
+    db.exec(`
+      UPDATE semesters
+      SET year = CAST(SUBSTR(term_code, 2, 1) AS INTEGER),
+          semester = CAST(SUBSTR(term_code, 4, 1) AS INTEGER)
+      WHERE (year IS NULL OR semester IS NULL) AND term_code LIKE 'Y_S_';
+
+      UPDATE semesters
+      SET status = CASE 
+        WHEN is_active = 1 THEN 'Running'
+        ELSE 'Upcoming'
+      END
+      WHERE status IS NULL OR status = '';
+    `);
+  } catch (e) { /* ignore */ }
 
   seedInitialData();
   ensureRichNotices();

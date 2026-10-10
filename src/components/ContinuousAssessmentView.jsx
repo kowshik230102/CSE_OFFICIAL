@@ -1,4 +1,5 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
+import { useAuth } from '../context/AuthContext';
 import { 
   Award, 
   BookOpen, 
@@ -18,6 +19,7 @@ import {
   Lock, 
   Unlock, 
   Plus, 
+  PlusCircle, 
   RefreshCw, 
   X, 
   Sparkles, 
@@ -26,776 +28,1219 @@ import {
   Mail, 
   Phone, 
   HelpCircle,
-  TrendingUp,
-  FileSpreadsheet,
-  Layers,
-  ChevronRight,
-  ShieldCheck,
-  Check
+  TrendingUp, 
+  FileSpreadsheet, 
+  Layers, 
+  ChevronRight, 
+  ChevronDown,
+  ShieldCheck, 
+  Check,
+  RotateCcw,
+  History,
+  Send,
+  Eye,
+  Archive,
+  SlidersHorizontal,
+  AlertTriangle
 } from 'lucide-react';
 
-export function ContinuousAssessmentView({ user, onBackToDashboard }) {
-  // Sessions & Courses State
+import { computeStudentCA, computeClassRanks, formatOrdinal, parseMark } from '../utils/assessment';
+
+export function ContinuousAssessmentView({ user: propUser, onBackToDashboard }) {
+  const { user: contextUser, token: contextToken } = useAuth();
+  const user = contextUser || propUser;
+
+  const getAuthHeaders = () => {
+    const curToken = contextToken || localStorage.getItem('token') || localStorage.getItem('cse_token');
+    return curToken ? { Authorization: `Bearer ${curToken}` } : {};
+  };
+
+  // View Navigation: 'DASHBOARD' | 'SESSION_COURSES' | 'ASSESSMENT_SHEET'
+  const [viewMode, setViewMode] = useState('DASHBOARD');
+
+  // Master Data State
   const [sessions, setSessions] = useState([]);
-  const [selectedSessionId, setSelectedSessionId] = useState('');
-  const [courses, setCourses] = useState([]);
   const [loadingSessions, setLoadingSessions] = useState(true);
+
+  // Selected Session & Semesters
+  const [selectedSession, setSelectedSession] = useState(null);
+  const [sessionSemesters, setSessionSemesters] = useState([]);
+  const [loadingSemesters, setLoadingSemesters] = useState(false);
+  const [selectedSemesterFilter, setSelectedSemesterFilter] = useState('ALL');
+
+  // Courses in selected session
+  const [coursesData, setCoursesData] = useState({ courses: [], assignedCourses: [], unassignedCourses: [] });
   const [loadingCourses, setLoadingCourses] = useState(false);
+  const [courseSearchQuery, setCourseSearchQuery] = useState('');
 
-  // Active Semester Filter & Search
-  const [activeSemesterFilter, setActiveSemesterFilter] = useState('ALL');
-  const [courseSearch, setCourseSearch] = useState('');
-
-  // Selected Course for Continuous Assessment Matrix Modal
+  // Selected Course & Sheet Matrix
   const [selectedCourse, setSelectedCourse] = useState(null);
-  const [marksData, setMarksData] = useState(null); // { course, canEdit, isAssignedTeacher, matrix, stats }
-  const [localMatrix, setLocalMatrix] = useState([]); // Editable buffer
+  const [marksSheetData, setMarksSheetData] = useState(null); // { course, canEdit, isAssignedTeacher, matrix, stats, finalMaxMarks, status }
+  const [localMatrix, setLocalMatrix] = useState([]);
   const [isDirty, setIsDirty] = useState(false);
-  const [loadingMarks, setLoadingMarks] = useState(false);
-  const [savingMarks, setSavingMarks] = useState(false);
+  const [loadingSheet, setLoadingSheet] = useState(false);
+  const [savingSheet, setSavingSheet] = useState(false);
+  const [finalTheoryMaxMarks, setFinalTheoryMaxMarks] = useState(70.0);
 
-  // Student Filter inside Matrix
-  const [studentSearch, setStudentSearch] = useState('');
-  const [statusFilter, setStatusFilter] = useState('ALL'); // 'ALL', 'EVALUATED', 'PENDING', 'AT_RISK'
+  // Sheet filter & search
+  const [sheetSearchQuery, setSheetSearchQuery] = useState('');
+  const [sheetStatusFilter, setSheetStatusFilter] = useState('ALL'); // 'ALL' | 'COMPLETE' | 'INCOMPLETE' | 'AT_RISK'
 
-  // New Academic Session Modal
-  const [isNewSessionModalOpen, setIsNewSessionModalOpen] = useState(false);
-  const [newSessionForm, setNewSessionForm] = useState({
+  // Dashboard Filters & Sorting
+  const [dashboardSearch, setDashboardSearch] = useState('');
+  const [dashboardStatusFilter, setDashboardStatusFilter] = useState('ALL'); // 'ALL' | 'RUNNING' | 'PUBLISHED' | 'ARCHIVED' | 'CURRENT'
+  const [dashboardSortBy, setDashboardSortBy] = useState('YEAR_DESC'); // 'YEAR_DESC' | 'YEAR_ASC' | 'STUDENTS_DESC' | 'COURSES_DESC'
+
+  // Modals State
+  const [isCreateSemesterModalOpen, setIsCreateSemesterModalOpen] = useState(false);
+  const [createSemesterForm, setCreateSemesterForm] = useState({
+    sessionId: '',
+    academicYear: '',
+    year: '1',
+    semester: '1',
+    startDate: new Date().toISOString().split('T')[0],
+    classEndDate: '',
+    assessmentDeadline: '',
+    status: 'Running',
+    notes: ''
+  });
+  const [submittingSemester, setSubmittingSemester] = useState(false);
+
+  const [isCreateSessionModalOpen, setIsCreateSessionModalOpen] = useState(false);
+  const [createSessionForm, setCreateSessionForm] = useState({
     sessionName: '',
     startDate: new Date().toISOString().split('T')[0],
     endDate: '',
     isCurrent: false
   });
-  const [creatingSession, setCreatingSession] = useState(false);
+  const [submittingSession, setSubmittingSession] = useState(false);
 
-  // Toast Notification
+  // Reopen Modal
+  const [isReopenModalOpen, setIsReopenModalOpen] = useState(false);
+  const [reopenReason, setReopenReason] = useState('');
+  const [submittingReopen, setSubmittingReopen] = useState(false);
+
+  // Audit Logs Modal
+  const [isAuditLogsModalOpen, setIsAuditLogsModalOpen] = useState(false);
+  const [auditLogs, setAuditLogs] = useState([]);
+  const [loadingAuditLogs, setLoadingAuditLogs] = useState(false);
+
+  // Toast Notification State
   const [toast, setToast] = useState(null);
-
   const showToast = (message, type = 'success') => {
     setToast({ message, type });
     setTimeout(() => setToast(null), 4500);
   };
 
-  // 1. Fetch Serial Academic Sessions on Mount
+  const isAuthority = Boolean(
+    user?.role === 'ADMIN' ||
+    user?.role === 'OFFICE_STAFF' ||
+    user?.email === 'chair.cse_pust@gmail.com' ||
+    (user?.designation && user.designation.toLowerCase().includes('chair'))
+  );
+
+  // 1. Initial Load: Fetch All Sessions
   useEffect(() => {
     fetchSessions();
   }, []);
 
   const fetchSessions = async () => {
     setLoadingSessions(true);
-    const token = localStorage.getItem('token');
-    const headers = token ? { Authorization: `Bearer ${token}` } : {};
-
     try {
       const res = await fetch('/api/academic/continuous-assessment/sessions', {
-        credentials: 'include',
-        headers
+        headers: getAuthHeaders()
       });
       const data = await res.json();
-      if (data.sessions && data.sessions.length > 0) {
-        setSessions(data.sessions);
-        // Default select current session or first serial session
-        if (!selectedSessionId) {
-          const current = data.sessions.find(s => s.is_current) || data.sessions[0];
-          setSelectedSessionId(current.id);
-        }
-      }
+      if (!res.ok) throw new Error(data.error || 'Failed to load assessment sessions.');
+      setSessions(data.sessions || []);
     } catch (err) {
-      showToast('Failed to load academic sessions: ' + err.message, 'error');
+      showToast(err.message, 'error');
     } finally {
       setLoadingSessions(false);
     }
   };
 
-  // 2. Fetch Courses when selectedSessionId changes
-  useEffect(() => {
-    if (!selectedSessionId) return;
+  // 2. Open a Session
+  const handleOpenSession = async (session) => {
+    setSelectedSession(session);
+    setViewMode('SESSION_COURSES');
+    setSelectedSemesterFilter('ALL');
+    setCourseSearchQuery('');
 
-    async function fetchSessionCourses() {
-      setLoadingCourses(true);
-      const token = localStorage.getItem('token');
-      const headers = token ? { Authorization: `Bearer ${token}` } : {};
+    // Fetch semesters and courses for this session
+    fetchSessionSemesters(session.id);
+    fetchSessionCourses(session.id, 'ALL');
+  };
 
-      try {
-        const res = await fetch(`/api/academic/continuous-assessment/sessions/${selectedSessionId}/courses`, {
-          credentials: 'include',
-          headers
-        });
-        const data = await res.json();
-        if (data.courses) {
-          setCourses(data.courses);
-        } else {
-          setCourses([]);
-        }
-      } catch (err) {
-        showToast('Failed to load session courses: ' + err.message, 'error');
-      } finally {
-        setLoadingCourses(false);
-      }
+  const fetchSessionSemesters = async (sessionId) => {
+    setLoadingSemesters(true);
+    try {
+      const res = await fetch(`/api/academic/continuous-assessment/sessions/${sessionId}/semesters`, {
+        headers: getAuthHeaders()
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to load session semesters.');
+      setSessionSemesters(data.semesters || []);
+    } catch (err) {
+      showToast(err.message, 'error');
+    } finally {
+      setLoadingSemesters(false);
     }
+  };
 
-    fetchSessionCourses();
-  }, [selectedSessionId]);
+  const fetchSessionCourses = async (sessionId, semesterId = 'ALL') => {
+    setLoadingCourses(true);
+    try {
+      const url = semesterId && semesterId !== 'ALL'
+        ? `/api/academic/continuous-assessment/sessions/${sessionId}/courses?semesterId=${semesterId}`
+        : `/api/academic/continuous-assessment/sessions/${sessionId}/courses`;
 
-  // 3. Open Continuous Assessment Matrix for a Course
-  const handleOpenCourseMarks = async (course) => {
+      const res = await fetch(url, { headers: getAuthHeaders() });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to load courses.');
+      setCoursesData({
+        courses: data.courses || [],
+        assignedCourses: data.assignedCourses || [],
+        unassignedCourses: data.unassignedCourses || []
+      });
+    } catch (err) {
+      showToast(err.message, 'error');
+    } finally {
+      setLoadingCourses(false);
+    }
+  };
+
+  // 3. Open Course Assessment Sheet
+  const handleOpenAssessmentSheet = async (course) => {
     setSelectedCourse(course);
-    setLoadingMarks(true);
+    setLoadingSheet(true);
     setIsDirty(false);
-    setStudentSearch('');
-    setStatusFilter('ALL');
-
-    const token = localStorage.getItem('token');
-    const headers = token ? { Authorization: `Bearer ${token}` } : {};
+    setSheetSearchQuery('');
+    setSheetStatusFilter('ALL');
 
     try {
       const res = await fetch(`/api/academic/continuous-assessment/courses/${course.id}/marks`, {
-        credentials: 'include',
-        headers
+        headers: getAuthHeaders()
       });
       const data = await res.json();
-      if (data.matrix) {
-        setMarksData(data);
-        setLocalMatrix(JSON.parse(JSON.stringify(data.matrix)));
-      } else {
-        showToast('No assessment data found for this course.', 'error');
-      }
+      if (!res.ok) throw new Error(data.error || 'Failed to load assessment sheet.');
+
+      setMarksSheetData(data);
+      setLocalMatrix(JSON.parse(JSON.stringify(data.matrix || [])));
+      setFinalTheoryMaxMarks(data.finalMaxMarks || 70.0);
+      setViewMode('ASSESSMENT_SHEET');
     } catch (err) {
-      showToast('Failed to load course marks: ' + err.message, 'error');
+      showToast(err.message, 'error');
     } finally {
-      setLoadingMarks(false);
+      setLoadingSheet(false);
     }
   };
 
-  // 4. Update Local Marks Buffer (Strictly if canEdit is true)
-  const handleMarkChange = (studentId, field, value) => {
-    if (!marksData?.canEdit) return;
+  // 4. Update Local Marks Cell
+  const handleCellChange = (studentId, field, rawValue) => {
+    if (!marksSheetData?.canEdit) return;
 
-    setLocalMatrix(prev => prev.map(item => {
-      if (item.studentId === studentId) {
-        const updated = { ...item, [field]: value === '' ? null : Number(value) };
+    let value = null;
+    if (rawValue !== '' && rawValue !== null && rawValue !== undefined) {
+      const num = parseFloat(rawValue);
+      if (isNaN(num)) return;
+      
+      const maxVal = field === 'finalTheory' ? finalTheoryMaxMarks : 10.0;
+      if (num < 0 || num > maxVal) {
+        showToast(`Mark must be between 0 and ${maxVal}`, 'error');
+        return;
+      }
+      value = num;
+    }
 
-        // Real-time recalculation of Best 2 of 3 CTs + Attendance
-        const validCTs = [updated.ct1, updated.ct2, updated.ct3]
+    setIsDirty(true);
+
+    setLocalMatrix(prev => {
+      const next = prev.map(row => {
+        if (row.studentId !== studentId) return row;
+
+        const updated = { ...row, [field]: value };
+
+        // Recalculate CA Marks, Grade, and Rank dynamically
+        const enteredCTs = [updated.ct1, updated.ct2, updated.ct3]
           .filter(v => v !== null && v !== undefined && !isNaN(v))
           .map(Number);
+        const hasAttendance = updated.attendance !== null && updated.attendance !== undefined && !isNaN(updated.attendance);
 
-        let best2 = 0;
-        let ctAvg = 0;
-        if (validCTs.length > 0) {
-          validCTs.sort((a, b) => b - a);
-          const top2 = validCTs.slice(0, 2);
-          best2 = top2.reduce((sum, v) => sum + v, 0);
-          ctAvg = validCTs.reduce((sum, v) => sum + v, 0) / validCTs.length;
+        if (enteredCTs.length >= 2 && hasAttendance) {
+          const sorted = [...enteredCTs].sort((a, b) => b - a);
+          const best2 = Math.round((sorted[0] + sorted[1]) * 10) / 10;
+          const ca = Math.round((best2 + Number(updated.attendance)) * 10) / 10;
+          const pct = (ca / 30.0) * 100;
+          const gradeCalc = computeStudentCA(updated.ct1, updated.ct2, updated.ct3, updated.attendance);
+
+          return {
+            ...updated,
+            best2Total: best2,
+            caMarks: ca,
+            caGrade: gradeCalc.grade,
+            isCAComplete: true
+          };
+        } else {
+          return {
+            ...updated,
+            best2Total: null,
+            caMarks: null,
+            caGrade: enteredCTs.length > 0 || hasAttendance ? 'Incomplete' : '—',
+            isCAComplete: false
+          };
         }
+      });
 
-        const att = (updated.attendance !== null && !isNaN(updated.attendance)) ? Number(updated.attendance) : 0;
-        const totalCont = validCTs.length > 0 ? Number((best2 + att).toFixed(1)) : (updated.attendance !== null ? att : null);
-        const pct = totalCont !== null ? Number(((totalCont / 30) * 100).toFixed(1)) : null;
-
-        // PUST Ordinance Grade
-        let gr = '-';
-        let st = 'NOT_EVALUATED';
-        if (pct !== null) {
-          if (pct >= 80) { gr = 'A+'; st = 'EXCELLENT'; }
-          else if (pct >= 75) { gr = 'A'; st = 'VERY_GOOD'; }
-          else if (pct >= 70) { gr = 'A-'; st = 'GOOD'; }
-          else if (pct >= 65) { gr = 'B+'; st = 'SATISFACTORY'; }
-          else if (pct >= 60) { gr = 'B'; st = 'ABOVE_AVERAGE'; }
-          else if (pct >= 55) { gr = 'B-'; st = 'AVERAGE'; }
-          else if (pct >= 50) { gr = 'C+'; st = 'PASS'; }
-          else if (pct >= 45) { gr = 'C'; st = 'PASS'; }
-          else if (pct >= 40) { gr = 'D'; st = 'MARGINAL'; }
-          else { gr = 'F'; st = 'FAIL'; }
-        }
-
-        return {
-          ...updated,
-          best2Total: validCTs.length > 0 ? Number(best2.toFixed(1)) : null,
-          ctAverage: validCTs.length > 0 ? Number(ctAvg.toFixed(1)) : null,
-          totalContinuous: totalCont,
-          percentage: pct,
-          grade: gr,
-          status: st,
-          isEvaluated: validCTs.length > 0 || updated.attendance !== null
-        };
-      }
-      return item;
-    }));
-    setIsDirty(true);
+      // Recalculate competition ranks across all rows
+      const rankMap = computeClassRanks(next);
+      return next.map(r => ({
+        ...r,
+        caRank: r.caMarks !== null ? (rankMap[r.studentId] || null) : null
+      }));
+    });
   };
 
-  const handleRemarksChange = (studentId, value) => {
-    if (!marksData?.canEdit) return;
-    setLocalMatrix(prev => prev.map(item => {
-      if (item.studentId === studentId) {
-        return { ...item, remarks: value };
-      }
-      return item;
-    }));
-    setIsDirty(true);
-  };
+  // Keyboard navigation for spreadsheet cells
+  const handleKeyDown = (e, rowIndex, colName) => {
+    const columns = ['ct1', 'ct2', 'ct3', 'attendance', 'finalTheory'];
+    const colIndex = columns.indexOf(colName);
+    if (colIndex === -1) return;
 
-  // 5. Save Continuous Assessment Matrix
-  const handleSaveMatrix = async () => {
-    if (!selectedCourse) return;
-    if (!marksData?.canEdit) {
-      showToast('You do not have permission to edit marks for this course. Only the assigned teacher can edit.', 'error');
+    let targetRow = rowIndex;
+    let targetCol = colIndex;
+
+    if (e.key === 'ArrowDown' || e.key === 'Enter') {
+      e.preventDefault();
+      targetRow = Math.min(localMatrix.length - 1, rowIndex + 1);
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      targetRow = Math.max(0, rowIndex - 1);
+    } else if (e.key === 'ArrowRight' && e.target.selectionStart === e.target.value.length) {
+      targetCol = Math.min(columns.length - 1, colIndex + 1);
+    } else if (e.key === 'ArrowLeft' && e.target.selectionStart === 0) {
+      targetCol = Math.max(0, colIndex - 1);
+    } else {
       return;
     }
 
-    setSavingMarks(true);
-    const token = localStorage.getItem('token');
-    const headers = {
-      'Content-Type': 'application/json',
-      ...(token ? { Authorization: `Bearer ${token}` } : {})
-    };
+    const nextId = `cell-${targetRow}-${columns[targetCol]}`;
+    const nextElem = document.getElementById(nextId);
+    if (nextElem) {
+      nextElem.focus();
+      nextElem.select();
+    }
+  };
+
+  // 5. Save Assessment Marks
+  const handleSaveMarks = async () => {
+    if (!selectedCourse) return;
+    setSavingSheet(true);
 
     try {
-      const payload = localMatrix.map(item => ({
-        studentId: item.studentId,
-        ct1: item.ct1,
-        ct2: item.ct2,
-        ct3: item.ct3,
-        attendance: item.attendance,
-        remarks: item.remarks
-      }));
-
       const res = await fetch(`/api/academic/continuous-assessment/courses/${selectedCourse.id}/marks`, {
         method: 'POST',
-        credentials: 'include',
-        headers,
-        body: JSON.stringify({ matrix: payload })
+        headers: {
+          'Content-Type': 'application/json',
+          ...getAuthHeaders()
+        },
+        body: JSON.stringify({
+          matrix: localMatrix,
+          finalMaxMarks: finalTheoryMaxMarks
+        })
       });
 
       const data = await res.json();
-      if (!res.ok) {
-        throw new Error(data.error || 'Failed to save continuous assessment marks.');
-      }
+      if (!res.ok) throw new Error(data.error || 'Failed to save assessment marks.');
 
-      showToast(data.message || 'Continuous assessment marks saved successfully!');
       setIsDirty(false);
+      showToast(data.message || 'Assessment marks successfully saved!', 'success');
 
-      // Refresh marks
-      const refreshRes = await fetch(`/api/academic/continuous-assessment/courses/${selectedCourse.id}/marks`, {
-        credentials: 'include',
-        headers
+      // Refresh sheet to keep full consistency
+      handleOpenAssessmentSheet(selectedCourse);
+    } catch (err) {
+      showToast(err.message, 'error');
+    } finally {
+      setSavingSheet(false);
+    }
+  };
+
+  // 6. Submit Assessment for Review
+  const handleSubmitAssessment = async () => {
+    if (!selectedCourse) return;
+    if (!window.confirm(`Submit assessment marks for ${selectedCourse.course_code} for departmental review?`)) return;
+
+    try {
+      const res = await fetch(`/api/academic/continuous-assessment/courses/${selectedCourse.id}/submit`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...getAuthHeaders()
+        }
       });
-      const refreshData = await refreshRes.json();
-      if (refreshData.matrix) {
-        setMarksData(refreshData);
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to submit assessment.');
+      showToast(data.message, 'success');
+      handleOpenAssessmentSheet(selectedCourse);
+    } catch (err) {
+      showToast(err.message, 'error');
+    }
+  };
+
+  // 7. Publish Results (Admin / Authority)
+  const handlePublishResults = async () => {
+    if (!selectedCourse) return;
+    if (!window.confirm(`Officially finalize & publish results for ${selectedCourse.course_code}? Once published, marks will be synchronized to official transcripts and permanently locked.`)) return;
+
+    try {
+      const res = await fetch(`/api/academic/continuous-assessment/courses/${selectedCourse.id}/publish`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...getAuthHeaders()
+        }
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to publish results.');
+      showToast(data.message, 'success');
+      handleOpenAssessmentSheet(selectedCourse);
+    } catch (err) {
+      showToast(err.message, 'error');
+    }
+  };
+
+  // 8. Reopen Locked Assessment (Admin / Authority)
+  const handleReopenAssessment = async (e) => {
+    e.preventDefault();
+    if (!selectedCourse || !reopenReason.trim()) {
+      showToast('An explicit administrative reason is required to reopen this assessment.', 'error');
+      return;
+    }
+
+    setSubmittingReopen(true);
+    try {
+      const res = await fetch(`/api/academic/continuous-assessment/courses/${selectedCourse.id}/reopen`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...getAuthHeaders()
+        },
+        body: JSON.stringify({ reason: reopenReason.trim() })
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to reopen assessment.');
+
+      setIsReopenModalOpen(false);
+      setReopenReason('');
+      showToast(data.message, 'success');
+      handleOpenAssessmentSheet(selectedCourse);
+    } catch (err) {
+      showToast(err.message, 'error');
+    } finally {
+      setSubmittingReopen(false);
+    }
+  };
+
+  // 9. View Audit Logs
+  const handleOpenAuditLogs = async () => {
+    if (!selectedCourse) return;
+    setIsAuditLogsModalOpen(true);
+    setLoadingAuditLogs(true);
+
+    try {
+      const res = await fetch(`/api/academic/continuous-assessment/courses/${selectedCourse.id}/audit-logs`, {
+        headers: getAuthHeaders()
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to fetch audit logs.');
+      setAuditLogs(data.logs || []);
+    } catch (err) {
+      showToast(err.message, 'error');
+    } finally {
+      setLoadingAuditLogs(false);
+    }
+  };
+
+  // 10. Create Semester Handler
+  const handleCreateSemesterSubmit = async (e) => {
+    e.preventDefault();
+    setSubmittingSemester(true);
+
+    try {
+      const res = await fetch('/api/academic/continuous-assessment/semesters', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...getAuthHeaders()
+        },
+        body: JSON.stringify(createSemesterForm)
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to create semester.');
+
+      showToast(data.message, 'success');
+      setIsCreateSemesterModalOpen(false);
+
+      // Refresh current views
+      fetchSessions();
+      if (selectedSession && selectedSession.id === createSemesterForm.sessionId) {
+        fetchSessionSemesters(selectedSession.id);
+        fetchSessionCourses(selectedSession.id, selectedSemesterFilter);
       }
     } catch (err) {
       showToast(err.message, 'error');
     } finally {
-      setSavingMarks(false);
+      setSubmittingSemester(false);
     }
   };
 
-  // 6. Quick Action: Pre-fill realistic demo marks for quick preview
-  const handleFillDemoMarks = () => {
-    if (!marksData?.canEdit) return;
-
-    setLocalMatrix(prev => prev.map((item, idx) => {
-      const baseCT1 = Number((7.0 + ((idx * 0.7) % 3.0)).toFixed(1));
-      const baseCT2 = Number((7.5 + ((idx * 0.5) % 2.5)).toFixed(1));
-      const baseCT3 = Number((8.0 + ((idx * 0.6) % 2.0)).toFixed(1));
-      const baseAtt = Number((8.5 + ((idx * 0.3) % 1.5)).toFixed(1));
-
-      const validCTs = [baseCT1, baseCT2, baseCT3].sort((a, b) => b - a);
-      const best2 = validCTs[0] + validCTs[1];
-      const totalCont = Number((best2 + baseAtt).toFixed(1));
-      const pct = Number(((totalCont / 30) * 100).toFixed(1));
-
-      return {
-        ...item,
-        ct1: baseCT1,
-        ct2: baseCT2,
-        ct3: baseCT3,
-        attendance: baseAtt,
-        best2Total: best2,
-        totalContinuous: totalCont,
-        percentage: pct,
-        grade: pct >= 80 ? 'A+' : pct >= 75 ? 'A' : pct >= 70 ? 'A-' : 'B+',
-        status: pct >= 80 ? 'EXCELLENT' : pct >= 70 ? 'GOOD' : 'PASS',
-        remarks: item.remarks || (pct >= 80 ? 'Exceptional problem solver' : 'Consistent performance'),
-        isEvaluated: true
-      };
-    }));
-    setIsDirty(true);
-    showToast('Sample continuous assessment marks filled. Click Save Changes to commit!', 'success');
-  };
-
-  // 7. Create New Academic Session (Auto-creates 8 semesters, courses, and teacher allocations)
-  const handleCreateNewSession = async (e) => {
+  // 11. Create Session Handler
+  const handleCreateSessionSubmit = async (e) => {
     e.preventDefault();
-    if (!newSessionForm.sessionName.trim()) {
-      showToast('Please enter a session name.', 'error');
-      return;
-    }
-
-    setCreatingSession(true);
-    const token = localStorage.getItem('token');
-    const headers = {
-      'Content-Type': 'application/json',
-      ...(token ? { Authorization: `Bearer ${token}` } : {})
-    };
+    setSubmittingSession(true);
 
     try {
       const res = await fetch('/api/academic/continuous-assessment/sessions', {
         method: 'POST',
-        credentials: 'include',
-        headers,
-        body: JSON.stringify(newSessionForm)
+        headers: {
+          'Content-Type': 'application/json',
+          ...getAuthHeaders()
+        },
+        body: JSON.stringify(createSessionForm)
       });
       const data = await res.json();
-      if (!res.ok) {
-        throw new Error(data.error || 'Failed to create academic session.');
-      }
+      if (!res.ok) throw new Error(data.error || 'Failed to create academic session.');
 
-      showToast(data.message || 'Academic session created successfully!');
-      setIsNewSessionModalOpen(false);
-      setNewSessionForm({
-        sessionName: '',
-        startDate: new Date().toISOString().split('T')[0],
-        endDate: '',
-        isCurrent: false
-      });
-
-      // Refresh sessions and auto-select new one
-      await fetchSessions();
-      if (data.session && data.session.id) {
-        setSelectedSessionId(data.session.id);
-      }
+      showToast(data.message, 'success');
+      setIsCreateSessionModalOpen(false);
+      fetchSessions();
     } catch (err) {
       showToast(err.message, 'error');
     } finally {
-      setCreatingSession(false);
+      setSubmittingSession(false);
     }
   };
 
-  // 8. Export to CSV
-  const handleExportCSV = () => {
-    if (!localMatrix.length || !selectedCourse) return;
-
-    const headers = ['Roll No', 'Registration No', 'Student Name', 'CT-1 (10)', 'CT-2 (10)', 'CT-3 (10)', 'Best 2 CTs (20)', 'Attendance (10)', 'Continuous Total (30)', 'Percentage (%)', 'Grade', 'Remarks'];
-    const rows = localMatrix.map(st => [
-      `"${st.studentRoll || ''}"`,
-      `"${st.registrationNo || ''}"`,
-      `"${st.studentName || ''}"`,
-      st.ct1 ?? '',
-      st.ct2 ?? '',
-      st.ct3 ?? '',
-      st.best2Total ?? '',
-      st.attendance ?? '',
-      st.totalContinuous ?? '',
-      st.percentage ?? '',
-      `"${st.grade || ''}"`,
-      `"${(st.remarks || '').replace(/"/g, '""')}"`
-    ]);
-
-    const csvContent = 'data:text/csv;charset=utf-8,' + [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
-    const encodedUri = encodeURI(csvContent);
-    const link = document.createElement('a');
-    link.setAttribute('href', encodedUri);
-    link.setAttribute('download', `${selectedCourse.course_code}_Continuous_Assessment_${selectedCourse.session_name || 'PUST'}.csv`);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    showToast('Continuous assessment grade sheet exported to CSV.', 'success');
+  // 12. Trigger Official A4 Landscape Print
+  const handlePrintAssessmentSheet = () => {
+    window.print();
   };
 
-  // 9. Filtered Courses for Active Semester & Search
-  const filteredCourses = useMemo(() => {
-    return courses.filter(c => {
-      // Semester filter
-      if (activeSemesterFilter !== 'ALL' && c.term_code !== activeSemesterFilter) {
-        return false;
-      }
-      // Search filter
-      if (courseSearch.trim()) {
-        const query = courseSearch.toLowerCase();
-        const matchCode = c.course_code?.toLowerCase().includes(query);
-        const matchTitle = c.course_title?.toLowerCase().includes(query);
-        const matchTeacher = c.assigned_teacher_name?.toLowerCase().includes(query);
-        const matchDept = c.assigned_teacher_department?.toLowerCase().includes(query);
-        if (!matchCode && !matchTitle && !matchTeacher && !matchDept) {
-          return false;
-        }
-      }
-      return true;
-    });
-  }, [courses, activeSemesterFilter, courseSearch]);
+  // Filtered & Sorted Sessions for Dashboard
+  const filteredSessions = useMemo(() => {
+    return sessions.filter(s => {
+      const matchesSearch = s.session_name.toLowerCase().includes(dashboardSearch.toLowerCase()) ||
+                            (s.running_semester_name && s.running_semester_name.toLowerCase().includes(dashboardSearch.toLowerCase()));
 
-  // 10. Filtered Matrix for Student Search & Status
+      let matchesStatus = true;
+      if (dashboardStatusFilter === 'CURRENT') matchesStatus = Boolean(s.is_current);
+      else if (dashboardStatusFilter === 'RUNNING') matchesStatus = s.running_semester_status === 'Running';
+      else if (dashboardStatusFilter === 'PUBLISHED') matchesStatus = s.publication_status === 'Result Published';
+      else if (dashboardStatusFilter === 'ARCHIVED') matchesStatus = s.publication_status === 'Archived';
+
+      return matchesSearch && matchesStatus;
+    }).sort((a, b) => {
+      if (dashboardSortBy === 'YEAR_ASC') {
+        const yA = parseInt((a.session_name.match(/(\d{4})/) || [0, 0])[1]) || 0;
+        const yB = parseInt((b.session_name.match(/(\d{4})/) || [0, 0])[1]) || 0;
+        return yA - yB;
+      }
+      if (dashboardSortBy === 'STUDENTS_DESC') return (b.student_count || 0) - (a.student_count || 0);
+      if (dashboardSortBy === 'COURSES_DESC') return (b.course_count || 0) - (a.course_count || 0);
+      // Default: YEAR_DESC
+      const yA = parseInt((a.session_name.match(/(\d{4})/) || [0, 0])[1]) || 0;
+      const yB = parseInt((b.session_name.match(/(\d{4})/) || [0, 0])[1]) || 0;
+      return yB - yA;
+    });
+  }, [sessions, dashboardSearch, dashboardStatusFilter, dashboardSortBy]);
+
+  // Filtered Sheet Matrix
   const filteredMatrix = useMemo(() => {
-    return localMatrix.filter(st => {
-      if (studentSearch.trim()) {
-        const query = studentSearch.toLowerCase();
-        const matchRoll = st.studentRoll?.toLowerCase().includes(query);
-        const matchName = st.studentName?.toLowerCase().includes(query);
-        const matchReg = st.registrationNo?.toLowerCase().includes(query);
-        if (!matchRoll && !matchName && !matchReg) return false;
-      }
+    return localMatrix.filter(row => {
+      const matchesSearch = row.studentRoll.toLowerCase().includes(sheetSearchQuery.toLowerCase()) ||
+                            row.studentName.toLowerCase().includes(sheetSearchQuery.toLowerCase());
 
-      if (statusFilter === 'EVALUATED') return st.isEvaluated;
-      if (statusFilter === 'PENDING') return !st.isEvaluated;
-      if (statusFilter === 'AT_RISK') return st.isEvaluated && (st.percentage === null || st.percentage < 40);
+      let matchesStatus = true;
+      if (sheetStatusFilter === 'COMPLETE') matchesStatus = Boolean(row.isCAComplete);
+      else if (sheetStatusFilter === 'INCOMPLETE') matchesStatus = !row.isCAComplete;
+      else if (sheetStatusFilter === 'AT_RISK') matchesStatus = row.caMarks !== null && row.caMarks < 12.0;
 
-      return true;
+      return matchesSearch && matchesStatus;
     });
-  }, [localMatrix, studentSearch, statusFilter]);
-
-  // Current selected session metadata
-  const currentSelectedSession = useMemo(() => {
-    return sessions.find(s => s.id === selectedSessionId);
-  }, [sessions, selectedSessionId]);
-
-  // 8 Semesters list for quick tabs
-  const semesterTabs = [
-    { code: 'ALL', label: 'All Semesters' },
-    { code: 'Y1S1', label: '1-1 (Y1S1)' },
-    { code: 'Y1S2', label: '1-2 (Y1S2)' },
-    { code: 'Y2S1', label: '2-1 (Y2S1)' },
-    { code: 'Y2S2', label: '2-2 (Y2S2)' },
-    { code: 'Y3S1', label: '3-1 (Y3S1)' },
-    { code: 'Y3S2', label: '3-2 (Y3S2)' },
-    { code: 'Y4S1', label: '4-1 (Y4S1)' },
-    { code: 'Y4S2', label: '4-2 (Y4S2)' }
-  ];
+  }, [localMatrix, sheetSearchQuery, sheetStatusFilter]);
 
   return (
-    <div style={{ padding: '1.5rem 2rem', maxWidth: '1440px', margin: '0 auto', color: '#f8fafc' }}>
-      {/* Toast Notification */}
+    <div className="regular-assessment-container" style={{ padding: '1.5rem', minHeight: '100vh', background: '#0b1120', color: '#f8fafc' }}>
+      
+      {/* Toast Feedback */}
       {toast && (
-        <div style={{
-          position: 'fixed',
-          top: '20px',
-          right: '24px',
-          zIndex: 9999,
-          background: toast.type === 'error' ? 'linear-gradient(135deg, #ef4444, #b91c1c)' : 'linear-gradient(135deg, #10b981, #047857)',
-          color: '#ffffff',
-          padding: '0.9rem 1.4rem',
-          borderRadius: '12px',
-          boxShadow: '0 10px 30px rgba(0, 0, 0, 0.45)',
-          display: 'flex',
-          alignItems: 'center',
-          gap: '0.75rem',
-          fontSize: '0.9rem',
-          fontWeight: 600,
-          border: '1px solid rgba(255, 255, 255, 0.25)',
-          animation: 'slideInRight 0.25s ease'
-        }}>
-          {toast.type === 'error' ? <AlertCircle size={20} /> : <CheckCircle2 size={20} />}
+        <div 
+          className="no-print"
+          style={{
+            position: 'fixed',
+            top: '20px',
+            right: '20px',
+            zIndex: 9999,
+            padding: '0.85rem 1.25rem',
+            borderRadius: '10px',
+            background: toast.type === 'error' ? '#ef4444' : '#10b981',
+            color: '#ffffff',
+            fontWeight: 600,
+            fontSize: '0.875rem',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '0.65rem',
+            boxShadow: '0 10px 25px rgba(0, 0, 0, 0.4)',
+            animation: 'fadeIn 0.2s ease'
+          }}
+        >
+          {toast.type === 'error' ? <AlertCircle size={18} /> : <CheckCircle2 size={18} />}
           <span>{toast.message}</span>
         </div>
       )}
 
-      {/* Top Header Navigation */}
-      <div style={{
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-        flexWrap: 'wrap',
-        gap: '1rem',
-        marginBottom: '2rem',
-        borderBottom: '1px solid #1e293b',
-        paddingBottom: '1.25rem'
-      }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
-          <button
-            onClick={onBackToDashboard}
-            style={{
-              background: 'rgba(30, 41, 59, 0.7)',
-              border: '1px solid #334155',
-              color: '#94a3b8',
-              padding: '0.6rem 0.9rem',
-              borderRadius: '10px',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '0.5rem',
-              cursor: 'pointer',
-              fontWeight: 600,
-              fontSize: '0.85rem',
-              transition: 'all 0.15s ease'
-            }}
-            onMouseEnter={e => { e.currentTarget.style.color = '#ffffff'; e.currentTarget.style.borderColor = '#64748b'; }}
-            onMouseLeave={e => { e.currentTarget.style.color = '#94a3b8'; e.currentTarget.style.borderColor = '#334155'; }}
-          >
-            <ArrowLeft size={16} />
-            <span>Dashboard</span>
-          </button>
-
-          <div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem' }}>
-              <div style={{
-                background: 'linear-gradient(135deg, #ec4899, #a855f7)',
-                color: '#ffffff',
-                padding: '0.45rem',
-                borderRadius: '10px',
-                display: 'flex',
-                boxShadow: '0 4px 15px rgba(236, 72, 153, 0.35)'
-              }}>
-                <Award size={22} />
-              </div>
-              <h1 style={{ fontSize: '1.65rem', fontWeight: 800, margin: 0, letterSpacing: '-0.02em', color: '#ffffff' }}>
-                Continuous Assessment
-              </h1>
-              <span style={{
-                background: 'rgba(236, 72, 153, 0.15)',
-                color: '#f472b6',
-                border: '1px solid rgba(236, 72, 153, 0.3)',
-                padding: '0.2rem 0.6rem',
-                borderRadius: '8px',
-                fontSize: '0.725rem',
-                fontWeight: 700
-              }}>
-                PUST CSE ORDINANCE
-              </span>
-            </div>
-            <p style={{ margin: '0.25rem 0 0 0', color: '#94a3b8', fontSize: '0.875rem' }}>
-              Serial Session Progression • Course Allocations • CT 1-3 & Attendance Evaluation Matrix • Teacher Security Guard
-            </p>
-          </div>
-        </div>
-
-        {/* Header Action Buttons */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-          <button
-            onClick={() => setIsNewSessionModalOpen(true)}
-            style={{
-              background: 'linear-gradient(135deg, #3b82f6, #2563eb)',
-              color: '#ffffff',
-              border: 'none',
-              padding: '0.65rem 1.1rem',
-              borderRadius: '10px',
-              fontWeight: 700,
-              fontSize: '0.875rem',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '0.5rem',
-              cursor: 'pointer',
-              boxShadow: '0 4px 14px rgba(37, 99, 235, 0.35)',
-              transition: 'all 0.15s ease'
-            }}
-            onMouseEnter={e => e.currentTarget.style.transform = 'translateY(-1px)'}
-            onMouseLeave={e => e.currentTarget.style.transform = 'translateY(0)'}
-          >
-            <Plus size={16} />
-            <span>Add Session / Start Class Date</span>
-          </button>
-
-          <button
-            onClick={fetchSessions}
-            title="Refresh Sessions & Course Data"
-            style={{
-              background: 'rgba(30, 41, 59, 0.8)',
-              border: '1px solid #334155',
-              color: '#cbd5e1',
-              padding: '0.65rem',
-              borderRadius: '10px',
-              cursor: 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center'
-            }}
-          >
-            <RefreshCw size={17} className={loadingSessions ? 'spin-animation' : ''} />
-          </button>
-        </div>
-      </div>
-
-      {/* 1. SERIAL SESSIONS PIPELINE (Sessions Occur Serially) */}
-      <div style={{ marginBottom: '2rem' }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.85rem' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
-            <Calendar size={18} style={{ color: '#818cf8' }} />
-            <h2 style={{ fontSize: '1.05rem', fontWeight: 800, margin: 0, color: '#e2e8f0', letterSpacing: '-0.01em' }}>
-              Academic Sessions Pipeline (Serial Occurrence)
-            </h2>
-            <span style={{ fontSize: '0.75rem', color: '#94a3b8' }}>
-              • Click any session to inspect courses & assessment matrices
-            </span>
-          </div>
-
-          <div style={{ fontSize: '0.75rem', color: '#a5b4fc', fontWeight: 600 }}>
-            {sessions.length} Academic Sessions Registered
-          </div>
-        </div>
-
-        {/* Horizontal Serial Session Cards */}
-        {loadingSessions ? (
-          <div style={{ padding: '2rem', textAlign: 'center', color: '#94a3b8', background: '#0f172a', borderRadius: '12px' }}>
-            <RefreshCw size={24} className="spin-animation" style={{ margin: '0 auto 0.5rem auto', color: '#3b82f6' }} />
-            <div>Loading serial academic sessions...</div>
-          </div>
-        ) : (
+      {/* ========================================================================= */}
+      {/* 1. DASHBOARD VIEW: SESSION-WISE CARDS & SEMESTER METADATA */}
+      {/* ========================================================================= */}
+      {viewMode === 'DASHBOARD' && (
+        <div className="assessment-dashboard-view">
+          {/* Header Banner */}
           <div style={{
-            display: 'grid',
-            gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))',
-            gap: '1rem'
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            flexWrap: 'wrap',
+            gap: '1rem',
+            padding: '1.25rem 1.5rem',
+            background: 'linear-gradient(135deg, rgba(30, 41, 59, 0.9), rgba(15, 23, 42, 0.95))',
+            borderRadius: '16px',
+            border: '1px solid rgba(255, 255, 255, 0.08)',
+            marginBottom: '1.5rem',
+            boxShadow: '0 8px 30px rgba(0, 0, 0, 0.35)'
           }}>
-            {sessions.map((sess, idx) => {
-              const isSelected = sess.id === selectedSessionId;
-              return (
-                <div
-                  key={sess.id}
-                  onClick={() => setSelectedSessionId(sess.id)}
+            <div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '0.25rem' }}>
+                <div style={{
+                  width: '40px',
+                  height: '40px',
+                  borderRadius: '10px',
+                  background: 'linear-gradient(135deg, #ec4899, #8b5cf6)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  color: '#ffffff',
+                  boxShadow: '0 4px 15px rgba(236, 72, 153, 0.35)'
+                }}>
+                  <Award size={22} />
+                </div>
+                <div>
+                  <h1 style={{ fontSize: '1.45rem', fontWeight: 800, margin: 0, color: '#ffffff', letterSpacing: '-0.02em' }}>
+                    Regular Assessment Management System
+                  </h1>
+                  <p style={{ margin: 0, fontSize: '0.8rem', color: '#94a3b8' }}>
+                    Department of Computer Science & Engineering, PUST • Centralized Session & Semester Operations
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap' }}>
+              <button
+                onClick={onBackToDashboard}
+                className="btn btn-secondary"
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '0.45rem',
+                  fontSize: '0.85rem',
+                  padding: '0.6rem 1rem',
+                  background: 'rgba(255, 255, 255, 0.06)',
+                  border: '1px solid rgba(255, 255, 255, 0.12)',
+                  color: '#cbd5e1',
+                  borderRadius: '10px',
+                  cursor: 'pointer'
+                }}
+              >
+                <ArrowLeft size={16} />
+                <span>Dashboard</span>
+              </button>
+
+              <button
+                onClick={fetchSessions}
+                disabled={loadingSessions}
+                title="Refresh sessions from database"
+                style={{
+                  width: '38px',
+                  height: '38px',
+                  borderRadius: '10px',
+                  background: 'rgba(255, 255, 255, 0.06)',
+                  border: '1px solid rgba(255, 255, 255, 0.12)',
+                  color: '#cbd5e1',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  cursor: 'pointer'
+                }}
+              >
+                <RefreshCw size={16} className={loadingSessions ? 'spin' : ''} />
+              </button>
+
+              {isAuthority && (
+                <>
+                  <button
+                    onClick={() => {
+                      if (sessions.length > 0) {
+                        setCreateSemesterForm(prev => ({ ...prev, sessionId: sessions[0].id }));
+                      }
+                      setIsCreateSemesterModalOpen(true);
+                    }}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '0.45rem',
+                      fontSize: '0.85rem',
+                      fontWeight: 700,
+                      padding: '0.6rem 1.15rem',
+                      background: 'linear-gradient(135deg, #6366f1, #3b82f6)',
+                      border: 'none',
+                      color: '#ffffff',
+                      borderRadius: '10px',
+                      cursor: 'pointer',
+                      boxShadow: '0 4px 15px rgba(99, 102, 241, 0.35)'
+                    }}
+                  >
+                    <PlusCircle size={17} />
+                    <span>Create Semester</span>
+                  </button>
+
+                  <button
+                    onClick={() => setIsCreateSessionModalOpen(true)}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '0.45rem',
+                      fontSize: '0.85rem',
+                      fontWeight: 700,
+                      padding: '0.6rem 1.15rem',
+                      background: 'rgba(236, 72, 153, 0.15)',
+                      border: '1px solid rgba(236, 72, 153, 0.4)',
+                      color: '#f472b6',
+                      borderRadius: '10px',
+                      cursor: 'pointer'
+                    }}
+                  >
+                    <Plus size={17} />
+                    <span>New Session</span>
+                  </button>
+                </>
+              )}
+            </div>
+          </div>
+
+          {/* Controls: Search, Filters & Sorters */}
+          <div style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            flexWrap: 'wrap',
+            gap: '1rem',
+            marginBottom: '1.5rem',
+            padding: '1rem',
+            background: 'rgba(15, 23, 42, 0.6)',
+            borderRadius: '14px',
+            border: '1px solid rgba(255, 255, 255, 0.06)'
+          }}>
+            {/* Search Input */}
+            <div style={{ position: 'relative', minWidth: '280px', flex: 1, maxWidth: '420px' }}>
+              <Search size={16} style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: '#64748b' }} />
+              <input
+                type="text"
+                placeholder="Search session name or running semester..."
+                value={dashboardSearch}
+                onChange={(e) => setDashboardSearch(e.target.value)}
+                style={{
+                  width: '100%',
+                  padding: '0.6rem 0.85rem 0.6rem 2.25rem',
+                  background: 'rgba(30, 41, 59, 0.8)',
+                  border: '1px solid rgba(255, 255, 255, 0.1)',
+                  borderRadius: '10px',
+                  color: '#ffffff',
+                  fontSize: '0.85rem',
+                  outline: 'none'
+                }}
+              />
+            </div>
+
+            {/* Filter Pills */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', flexWrap: 'wrap' }}>
+              {[
+                { id: 'ALL', label: 'All Batches' },
+                { id: 'CURRENT', label: 'Current Batch' },
+                { id: 'RUNNING', label: 'Running Semesters' },
+                { id: 'PUBLISHED', label: 'Results Published' },
+                { id: 'ARCHIVED', label: 'Archived' }
+              ].map(tab => (
+                <button
+                  key={tab.id}
+                  onClick={() => setDashboardStatusFilter(tab.id)}
                   style={{
-                    background: isSelected 
-                      ? 'linear-gradient(135deg, rgba(37, 99, 235, 0.22), rgba(99, 102, 241, 0.25))' 
-                      : 'rgba(15, 23, 42, 0.75)',
-                    border: isSelected ? '2px solid #60a5fa' : '1px solid #1e293b',
-                    borderRadius: '14px',
-                    padding: '1.15rem 1.25rem',
+                    padding: '0.45rem 0.85rem',
+                    borderRadius: '8px',
+                    fontSize: '0.78rem',
+                    fontWeight: 600,
+                    border: 'none',
                     cursor: 'pointer',
-                    transition: 'all 0.2s cubic-bezier(0.16, 1, 0.3, 1)',
-                    position: 'relative',
-                    boxShadow: isSelected ? '0 10px 25px rgba(37, 99, 235, 0.3)' : '0 4px 12px rgba(0, 0, 0, 0.2)',
-                    transform: isSelected ? 'scale(1.02)' : 'scale(1)'
-                  }}
-                  onMouseEnter={e => {
-                    if (!isSelected) {
-                      e.currentTarget.style.borderColor = '#475569';
-                      e.currentTarget.style.transform = 'translateY(-2px)';
-                    }
-                  }}
-                  onMouseLeave={e => {
-                    if (!isSelected) {
-                      e.currentTarget.style.borderColor = '#1e293b';
-                      e.currentTarget.style.transform = 'translateY(0)';
-                    }
+                    background: dashboardStatusFilter === tab.id ? '#3b82f6' : 'rgba(255, 255, 255, 0.05)',
+                    color: dashboardStatusFilter === tab.id ? '#ffffff' : '#94a3b8',
+                    transition: 'all 0.15s ease'
                   }}
                 >
-                  {/* Top Badges */}
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.6rem' }}>
-                    <span style={{
-                      fontSize: '0.675rem',
-                      fontWeight: 800,
-                      color: isSelected ? '#93c5fd' : '#94a3b8',
-                      letterSpacing: '0.05em'
-                    }}>
-                      SERIAL #{idx + 1}
-                    </span>
+                  {tab.label}
+                </button>
+              ))}
+            </div>
 
-                    {sess.is_current ? (
-                      <span style={{
-                        background: 'linear-gradient(135deg, #059669, #10b981)',
+            {/* Sorter */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+              <SlidersHorizontal size={15} style={{ color: '#94a3b8' }} />
+              <select
+                value={dashboardSortBy}
+                onChange={(e) => setDashboardSortBy(e.target.value)}
+                style={{
+                  background: 'rgba(30, 41, 59, 0.8)',
+                  border: '1px solid rgba(255, 255, 255, 0.1)',
+                  borderRadius: '8px',
+                  color: '#cbd5e1',
+                  fontSize: '0.78rem',
+                  padding: '0.45rem 0.65rem',
+                  outline: 'none'
+                }}
+              >
+                <option value="YEAR_DESC">Newest Session</option>
+                <option value="YEAR_ASC">Oldest Session</option>
+                <option value="STUDENTS_DESC">Most Students</option>
+                <option value="COURSES_DESC">Most Courses</option>
+              </select>
+            </div>
+          </div>
+
+          {/* Session Cards Grid */}
+          {loadingSessions ? (
+            <div style={{ textAlign: 'center', padding: '4rem 1rem', color: '#94a3b8' }}>
+              <RefreshCw size={32} className="spin" style={{ margin: '0 auto 1rem', color: '#6366f1' }} />
+              <p style={{ fontSize: '0.95rem' }}>Loading dynamic academic sessions from database...</p>
+            </div>
+          ) : filteredSessions.length === 0 ? (
+            <div style={{
+              textAlign: 'center',
+              padding: '4rem 2rem',
+              background: 'rgba(30, 41, 59, 0.4)',
+              borderRadius: '16px',
+              border: '1px dashed rgba(255, 255, 255, 0.15)'
+            }}>
+              <Calendar size={48} style={{ color: '#64748b', margin: '0 auto 1rem' }} />
+              <h3 style={{ fontSize: '1.15rem', fontWeight: 700, margin: '0 0 0.5rem', color: '#ffffff' }}>
+                No Academic Sessions Found
+              </h3>
+              <p style={{ fontSize: '0.85rem', color: '#94a3b8', maxWidth: '420px', margin: '0 auto 1.5rem' }}>
+                No batches match your search criteria. As semesters are created and completed, their assessment history is automatically preserved.
+              </p>
+              {isAuthority && (
+                <button
+                  onClick={() => setIsCreateSemesterModalOpen(true)}
+                  style={{
+                    padding: '0.65rem 1.25rem',
+                    background: '#3b82f6',
+                    color: '#ffffff',
+                    border: 'none',
+                    borderRadius: '10px',
+                    fontWeight: 600,
+                    cursor: 'pointer'
+                  }}
+                >
+                  Create First Semester
+                </button>
+              )}
+            </div>
+          ) : (
+            <div style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(auto-fill, minmax(360px, 1fr))',
+              gap: '1.25rem'
+            }}>
+              {filteredSessions.map(sess => {
+                const isCurrent = Boolean(sess.is_current);
+                const runningStatus = sess.running_semester_status || 'Running';
+
+                return (
+                  <div
+                    key={sess.id}
+                    style={{
+                      background: 'linear-gradient(145deg, rgba(30, 41, 59, 0.7) 0%, rgba(15, 23, 42, 0.85) 100%)',
+                      borderRadius: '16px',
+                      border: isCurrent ? '1px solid rgba(99, 102, 241, 0.4)' : '1px solid rgba(255, 255, 255, 0.08)',
+                      padding: '1.35rem',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      justifyContent: 'space-between',
+                      boxShadow: '0 8px 24px rgba(0, 0, 0, 0.25)',
+                      transition: 'all 0.2s ease',
+                      position: 'relative',
+                      overflow: 'hidden'
+                    }}
+                    onMouseEnter={(e) => { e.currentTarget.style.transform = 'translateY(-3px)'; e.currentTarget.style.borderColor = 'rgba(99, 102, 241, 0.6)'; }}
+                    onMouseLeave={(e) => { e.currentTarget.style.transform = 'translateY(0)'; e.currentTarget.style.borderColor = isCurrent ? 'rgba(99, 102, 241, 0.4)' : 'rgba(255, 255, 255, 0.08)'; }}
+                  >
+                    {/* Top Accent Line */}
+                    <div style={{
+                      position: 'absolute',
+                      top: 0,
+                      left: 0,
+                      right: 0,
+                      height: '3px',
+                      background: isCurrent 
+                        ? 'linear-gradient(90deg, #6366f1, #ec4899)'
+                        : sess.publication_status === 'Result Published'
+                          ? 'linear-gradient(90deg, #10b981, #059669)'
+                          : 'rgba(255, 255, 255, 0.15)'
+                    }} />
+
+                    <div>
+                      {/* Header Row: Session Name & Badge */}
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.85rem' }}>
+                        <div>
+                          <h3 style={{ fontSize: '1.2rem', fontWeight: 800, margin: 0, color: '#ffffff' }}>
+                            {sess.session_name}
+                          </h3>
+                          <span style={{ fontSize: '0.72rem', color: '#94a3b8' }}>
+                            Academic Batch • 4-Year B.Sc. Engineering
+                          </span>
+                        </div>
+
+                        {isCurrent ? (
+                          <span style={{
+                            fontSize: '0.68rem',
+                            fontWeight: 800,
+                            padding: '0.2rem 0.6rem',
+                            borderRadius: '12px',
+                            background: 'rgba(99, 102, 241, 0.2)',
+                            color: '#a5b4fc',
+                            border: '1px solid rgba(99, 102, 241, 0.4)'
+                          }}>
+                            CURRENT BATCH
+                          </span>
+                        ) : (
+                          <span style={{
+                            fontSize: '0.68rem',
+                            fontWeight: 700,
+                            padding: '0.2rem 0.6rem',
+                            borderRadius: '12px',
+                            background: 'rgba(255, 255, 255, 0.06)',
+                            color: '#94a3b8'
+                          }}>
+                            PREVIOUS BATCH
+                          </span>
+                        )}
+                      </div>
+
+                      {/* Running Semester Banner (Dynamic from DB) */}
+                      <div style={{
+                        padding: '0.75rem 0.95rem',
+                        background: runningStatus === 'Result Published' 
+                          ? 'rgba(16, 185, 129, 0.1)' 
+                          : runningStatus === 'Running'
+                            ? 'rgba(59, 130, 246, 0.1)'
+                            : 'rgba(255, 255, 255, 0.04)',
+                        border: '1px solid rgba(255, 255, 255, 0.06)',
+                        borderRadius: '10px',
+                        marginBottom: '1rem'
+                      }}>
+                        <div style={{ fontSize: '0.7rem', color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.05em', fontWeight: 700, marginBottom: '0.2rem' }}>
+                          Current Semester State
+                        </div>
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                          <span style={{ fontSize: '0.9rem', fontWeight: 800, color: '#f1f5f9' }}>
+                            {sess.running_semester_name}
+                          </span>
+                          <span style={{
+                            fontSize: '0.7rem',
+                            fontWeight: 700,
+                            padding: '0.15rem 0.5rem',
+                            borderRadius: '6px',
+                            background: runningStatus === 'Result Published'
+                              ? '#059669'
+                              : runningStatus === 'Running'
+                                ? '#2563eb'
+                                : '#475569',
+                            color: '#ffffff'
+                          }}>
+                            {runningStatus}
+                          </span>
+                        </div>
+
+                        {/* Dates */}
+                        {(sess.running_semester_start_date || sess.running_semester_end_date) && (
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.72rem', color: '#94a3b8', marginTop: '0.4rem' }}>
+                            <Calendar size={12} />
+                            <span>
+                              {sess.running_semester_start_date || 'Start'} to {sess.running_semester_end_date || 'End'}
+                            </span>
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Stat Grid */}
+                      <div style={{
+                        display: 'grid',
+                        gridTemplateColumns: 'repeat(3, 1fr)',
+                        gap: '0.65rem',
+                        marginBottom: '1.25rem'
+                      }}>
+                        <div style={{ padding: '0.6rem', background: 'rgba(15, 23, 42, 0.5)', borderRadius: '8px', textAlign: 'center' }}>
+                          <Users size={16} style={{ color: '#38bdf8', margin: '0 auto 0.2rem' }} />
+                          <div style={{ fontSize: '1.05rem', fontWeight: 800, color: '#ffffff' }}>
+                            {sess.student_count || 0}
+                          </div>
+                          <div style={{ fontSize: '0.65rem', color: '#94a3b8' }}>Students</div>
+                        </div>
+
+                        <div style={{ padding: '0.6rem', background: 'rgba(15, 23, 42, 0.5)', borderRadius: '8px', textAlign: 'center' }}>
+                          <BookOpen size={16} style={{ color: '#a78bfa', margin: '0 auto 0.2rem' }} />
+                          <div style={{ fontSize: '1.05rem', fontWeight: 800, color: '#ffffff' }}>
+                            {sess.course_count || 0}
+                          </div>
+                          <div style={{ fontSize: '0.65rem', color: '#94a3b8' }}>Courses</div>
+                        </div>
+
+                        <div style={{ padding: '0.6rem', background: 'rgba(15, 23, 42, 0.5)', borderRadius: '8px', textAlign: 'center' }}>
+                          <GraduationCap size={16} style={{ color: '#34d399', margin: '0 auto 0.2rem' }} />
+                          <div style={{ fontSize: '1.05rem', fontWeight: 800, color: '#ffffff' }}>
+                            {sess.teacher_count || 0}
+                          </div>
+                          <div style={{ fontSize: '0.65rem', color: '#94a3b8' }}>Teachers</div>
+                        </div>
+                      </div>
+
+                      {/* Status Badges Row */}
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: '0.75rem', marginBottom: '1.25rem' }}>
+                        <span style={{ color: '#94a3b8' }}>Publication Status:</span>
+                        <span style={{
+                          fontWeight: 700,
+                          color: sess.publication_status === 'Result Published' ? '#34d399' : '#e2e8f0'
+                        }}>
+                          {sess.publication_status}
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* Bottom CTA Button */}
+                    <button
+                      onClick={() => handleOpenSession(sess)}
+                      style={{
+                        width: '100%',
+                        padding: '0.75rem',
+                        borderRadius: '10px',
+                        background: 'linear-gradient(135deg, rgba(59, 130, 246, 0.15), rgba(99, 102, 241, 0.2))',
+                        border: '1px solid rgba(59, 130, 246, 0.3)',
                         color: '#ffffff',
-                        fontSize: '0.65rem',
-                        fontWeight: 800,
-                        padding: '0.15rem 0.5rem',
-                        borderRadius: '20px',
+                        fontWeight: 700,
+                        fontSize: '0.85rem',
                         display: 'flex',
                         alignItems: 'center',
-                        gap: '0.3rem'
-                      }}>
-                        <Sparkles size={11} /> CURRENT
-                      </span>
-                    ) : (
-                      <span style={{
-                        background: 'rgba(148, 163, 184, 0.12)',
-                        color: '#94a3b8',
-                        fontSize: '0.65rem',
-                        fontWeight: 700,
-                        padding: '0.15rem 0.5rem',
-                        borderRadius: '20px'
-                      }}>
-                        SERIAL SESSION
-                      </span>
-                    )}
+                        justifyContent: 'center',
+                        gap: '0.5rem',
+                        cursor: 'pointer',
+                        transition: 'all 0.15s ease'
+                      }}
+                      onMouseEnter={(e) => { e.currentTarget.style.background = 'linear-gradient(135deg, #2563eb, #6366f1)'; }}
+                      onMouseLeave={(e) => { e.currentTarget.style.background = 'linear-gradient(135deg, rgba(59, 130, 246, 0.15), rgba(99, 102, 241, 0.2))'; }}
+                    >
+                      <span>Explore Assessment & Courses</span>
+                      <ChevronRight size={16} />
+                    </button>
                   </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
 
-                  {/* Session Title */}
-                  <div style={{ fontSize: '1.1rem', fontWeight: 800, color: '#ffffff', marginBottom: '0.35rem' }}>
-                    {sess.session_name}
-                  </div>
+      {/* ========================================================================= */}
+      {/* 2. SESSION COURSES EXPLORER: SEMESTER TABS & ROUTINE-LINKED COURSES */}
+      {/* ========================================================================= */}
+      {viewMode === 'SESSION_COURSES' && selectedSession && (
+        <div className="session-courses-view">
+          {/* Top Session Breadcrumb Bar */}
+          <div style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            flexWrap: 'wrap',
+            gap: '1rem',
+            padding: '1.25rem 1.5rem',
+            background: 'linear-gradient(135deg, rgba(30, 41, 59, 0.9), rgba(15, 23, 42, 0.95))',
+            borderRadius: '16px',
+            border: '1px solid rgba(255, 255, 255, 0.08)',
+            marginBottom: '1.5rem',
+            boxShadow: '0 8px 30px rgba(0, 0, 0, 0.35)'
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.85rem' }}>
+              <button
+                onClick={() => setViewMode('DASHBOARD')}
+                style={{
+                  width: '38px',
+                  height: '38px',
+                  borderRadius: '10px',
+                  background: 'rgba(255, 255, 255, 0.06)',
+                  border: '1px solid rgba(255, 255, 255, 0.12)',
+                  color: '#ffffff',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  cursor: 'pointer'
+                }}
+                title="Back to Sessions Dashboard"
+              >
+                <ArrowLeft size={18} />
+              </button>
 
-                  {/* Start Date / Class Start Date */}
-                  <div style={{ fontSize: '0.75rem', color: '#94a3b8', marginBottom: '0.85rem', display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
-                    <Clock size={13} style={{ color: '#60a5fa' }} />
-                    <span>Starts: {sess.start_date || 'Class date pending'}</span>
-                  </div>
+              <div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem' }}>
+                  <h2 style={{ fontSize: '1.35rem', fontWeight: 800, margin: 0, color: '#ffffff' }}>
+                    {selectedSession.session_name}
+                  </h2>
+                  {selectedSession.is_current ? (
+                    <span style={{ fontSize: '0.65rem', fontWeight: 800, padding: '0.15rem 0.5rem', borderRadius: '8px', background: '#2563eb', color: '#ffffff' }}>
+                      CURRENT BATCH
+                    </span>
+                  ) : (
+                    <span style={{ fontSize: '0.65rem', fontWeight: 700, padding: '0.15rem 0.5rem', borderRadius: '8px', background: 'rgba(255,255,255,0.1)', color: '#cbd5e1' }}>
+                      HISTORICAL BATCH
+                    </span>
+                  )}
+                </div>
+                <p style={{ margin: '0.2rem 0 0', fontSize: '0.8rem', color: '#94a3b8' }}>
+                  4-Year Curriculum Courses • Assigned Faculty from Routine Module • Continuous Assessment
+                </p>
+              </div>
+            </div>
 
-                  {/* Metrics Row */}
-                  <div style={{
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+              {isAuthority && (
+                <button
+                  onClick={() => {
+                    setCreateSemesterForm(prev => ({ ...prev, sessionId: selectedSession.id }));
+                    setIsCreateSemesterModalOpen(true);
+                  }}
+                  style={{
                     display: 'flex',
                     alignItems: 'center',
-                    justifyContent: 'space-between',
-                    paddingTop: '0.75rem',
-                    borderTop: '1px solid rgba(255, 255, 255, 0.08)',
-                    fontSize: '0.75rem'
-                  }}>
-                    <span style={{ color: '#cbd5e1', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
-                      <BookOpen size={13} style={{ color: '#818cf8' }} />
-                      {sess.course_count || 31} Courses
-                    </span>
+                    gap: '0.45rem',
+                    fontSize: '0.85rem',
+                    fontWeight: 700,
+                    padding: '0.6rem 1.15rem',
+                    background: 'linear-gradient(135deg, #6366f1, #3b82f6)',
+                    border: 'none',
+                    color: '#ffffff',
+                    borderRadius: '10px',
+                    cursor: 'pointer'
+                  }}
+                >
+                  <PlusCircle size={16} />
+                  <span>Add Semester</span>
+                </button>
+              )}
+            </div>
+          </div>
 
-                    <span style={{ color: '#34d399', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
-                      <Users size={13} />
-                      {sess.student_count || 15} Students
-                    </span>
-                  </div>
-                </div>
+          {/* Semester Selector Tabs */}
+          <div style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '0.5rem',
+            overflowX: 'auto',
+            paddingBottom: '0.75rem',
+            marginBottom: '1.25rem'
+          }}>
+            <button
+              onClick={() => {
+                setSelectedSemesterFilter('ALL');
+                fetchSessionCourses(selectedSession.id, 'ALL');
+              }}
+              style={{
+                padding: '0.55rem 1rem',
+                borderRadius: '10px',
+                fontSize: '0.82rem',
+                fontWeight: 700,
+                border: 'none',
+                cursor: 'pointer',
+                whiteSpace: 'nowrap',
+                background: selectedSemesterFilter === 'ALL' ? '#3b82f6' : 'rgba(30, 41, 59, 0.8)',
+                color: selectedSemesterFilter === 'ALL' ? '#ffffff' : '#94a3b8',
+                borderWidth: '1px',
+                borderStyle: 'solid',
+                borderColor: selectedSemesterFilter === 'ALL' ? '#60a5fa' : 'rgba(255, 255, 255, 0.06)'
+              }}
+            >
+              All Semesters ({coursesData.courses.length})
+            </button>
+
+            {sessionSemesters.map(sem => {
+              const isSelected = selectedSemesterFilter === sem.id;
+              const status = sem.status || 'Running';
+
+              return (
+                <button
+                  key={sem.id}
+                  onClick={() => {
+                    setSelectedSemesterFilter(sem.id);
+                    fetchSessionCourses(selectedSession.id, sem.id);
+                  }}
+                  style={{
+                    padding: '0.55rem 1rem',
+                    borderRadius: '10px',
+                    fontSize: '0.82rem',
+                    fontWeight: 700,
+                    border: '1px solid',
+                    borderColor: isSelected ? '#818cf8' : 'rgba(255, 255, 255, 0.08)',
+                    cursor: 'pointer',
+                    whiteSpace: 'nowrap',
+                    background: isSelected ? 'rgba(99, 102, 241, 0.25)' : 'rgba(30, 41, 59, 0.8)',
+                    color: isSelected ? '#ffffff' : '#cbd5e1',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '0.5rem'
+                  }}
+                >
+                  <span>{sem.semester_name}</span>
+                  <span style={{
+                    fontSize: '0.65rem',
+                    padding: '0.1rem 0.4rem',
+                    borderRadius: '6px',
+                    background: status === 'Result Published' ? '#059669' : status === 'Running' ? '#2563eb' : '#475569',
+                    color: '#ffffff'
+                  }}>
+                    {status}
+                  </span>
+                </button>
               );
             })}
           </div>
-        )}
-      </div>
 
-      {/* 2. COURSES INSIDE SELECTED SESSION */}
-      <div style={{
-        background: '#0f172a',
-        border: '1px solid #1e293b',
-        borderRadius: '16px',
-        padding: '1.75rem',
-        boxShadow: '0 8px 30px rgba(0, 0, 0, 0.35)'
-      }}>
-        {/* Banner with Selected Session Overview */}
-        <div style={{
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          flexWrap: 'wrap',
-          gap: '1rem',
-          marginBottom: '1.5rem',
-          paddingBottom: '1.25rem',
-          borderBottom: '1px solid #1e293b'
-        }}>
-          <div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-              <span style={{
-                background: 'rgba(59, 130, 246, 0.15)',
-                color: '#60a5fa',
-                padding: '0.2rem 0.5rem',
-                borderRadius: '6px',
-                fontSize: '0.75rem',
-                fontWeight: 700
-              }}>
-                SELECTED SESSION
-              </span>
-              <h3 style={{ fontSize: '1.35rem', fontWeight: 800, margin: 0, color: '#ffffff' }}>
-                {currentSelectedSession?.session_name || 'Academic Session'}
-              </h3>
-            </div>
-            <div style={{ fontSize: '0.825rem', color: '#94a3b8', marginTop: '0.25rem' }}>
-              Showing all curriculum courses with assigned faculty, departments, and continuous evaluation progress. Click any course to view/grade students.
-            </div>
-          </div>
-
-          {/* Search Box */}
-          <div style={{ position: 'relative', width: '280px' }}>
+          {/* Search bar inside courses */}
+          <div style={{ marginBottom: '1.25rem', position: 'relative', maxWidth: '380px' }}>
             <Search size={16} style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: '#64748b' }} />
             <input
               type="text"
-              placeholder="Search course code, title, teacher..."
-              value={courseSearch}
-              onChange={e => setCourseSearch(e.target.value)}
+              placeholder="Search course code or title..."
+              value={courseSearchQuery}
+              onChange={(e) => setCourseSearchQuery(e.target.value)}
               style={{
                 width: '100%',
-                padding: '0.6rem 0.9rem 0.6rem 2.25rem',
-                background: 'rgba(30, 41, 59, 0.6)',
-                border: '1px solid #334155',
+                padding: '0.55rem 0.85rem 0.55rem 2.25rem',
+                background: 'rgba(30, 41, 59, 0.8)',
+                border: '1px solid rgba(255, 255, 255, 0.1)',
                 borderRadius: '10px',
                 color: '#ffffff',
                 fontSize: '0.85rem',
@@ -803,948 +1248,1005 @@ export function ContinuousAssessmentView({ user, onBackToDashboard }) {
               }}
             />
           </div>
-        </div>
 
-        {/* Semester Filter Tabs (1-1 to 4-2) */}
-        <div style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: '0.5rem',
-          overflowX: 'auto',
-          paddingBottom: '0.75rem',
-          marginBottom: '1.5rem'
-        }}>
-          {semesterTabs.map(tab => {
-            const isActive = activeSemesterFilter === tab.code;
-            return (
-              <button
-                key={tab.code}
-                onClick={() => setActiveSemesterFilter(tab.code)}
-                style={{
-                  background: isActive ? '#3b82f6' : 'rgba(30, 41, 59, 0.7)',
-                  color: isActive ? '#ffffff' : '#94a3b8',
-                  border: isActive ? '1px solid #60a5fa' : '1px solid #334155',
-                  padding: '0.45rem 0.85rem',
-                  borderRadius: '8px',
-                  fontSize: '0.775rem',
-                  fontWeight: 700,
-                  cursor: 'pointer',
-                  whiteSpace: 'nowrap',
-                  transition: 'all 0.15s ease'
-                }}
-              >
-                {tab.label}
-              </button>
-            );
-          })}
-        </div>
-
-        {/* Courses Cards Grid */}
-        {loadingCourses ? (
-          <div style={{ padding: '3rem', textAlign: 'center', color: '#94a3b8' }}>
-            <RefreshCw size={26} className="spin-animation" style={{ margin: '0 auto 0.75rem auto', color: '#3b82f6' }} />
-            <div>Loading session courses and faculty allocations...</div>
-          </div>
-        ) : filteredCourses.length === 0 ? (
-          <div style={{
-            padding: '3rem',
-            textAlign: 'center',
-            color: '#94a3b8',
-            background: 'rgba(30, 41, 59, 0.4)',
-            borderRadius: '12px',
-            border: '1px dashed #334155'
-          }}>
-            <BookOpen size={36} style={{ color: '#64748b', margin: '0 auto 0.75rem auto' }} />
-            <div style={{ fontSize: '1rem', fontWeight: 700, color: '#e2e8f0' }}>No Courses Found</div>
-            <div style={{ fontSize: '0.825rem', color: '#94a3b8', marginTop: '0.3rem' }}>
-              No courses matching the selected semester filter or search term.
-            </div>
-          </div>
-        ) : (
-          <div style={{
-            display: 'grid',
-            gridTemplateColumns: 'repeat(auto-fill, minmax(350px, 1fr))',
-            gap: '1.25rem'
-          }}>
-            {filteredCourses.map(course => {
-              const isAssignedToUser = course.is_user_assigned_teacher;
-              return (
-                <div
-                  key={course.id}
-                  onClick={() => handleOpenCourseMarks(course)}
-                  style={{
-                    background: 'rgba(30, 41, 59, 0.5)',
-                    border: isAssignedToUser ? '1px solid #3b82f6' : '1px solid #1e293b',
-                    borderRadius: '14px',
-                    padding: '1.25rem',
-                    cursor: 'pointer',
-                    transition: 'all 0.2s ease',
-                    display: 'flex',
-                    flexDirection: 'column',
-                    justifyContent: 'space-between',
-                    boxShadow: '0 4px 15px rgba(0, 0, 0, 0.2)'
-                  }}
-                  onMouseEnter={e => {
-                    e.currentTarget.style.transform = 'translateY(-3px)';
-                    e.currentTarget.style.borderColor = '#60a5fa';
-                    e.currentTarget.style.boxShadow = '0 10px 25px rgba(37, 99, 235, 0.25)';
-                  }}
-                  onMouseLeave={e => {
-                    e.currentTarget.style.transform = 'translateY(0)';
-                    e.currentTarget.style.borderColor = isAssignedToUser ? '#3b82f6' : '#1e293b';
-                    e.currentTarget.style.boxShadow = '0 4px 15px rgba(0, 0, 0, 0.2)';
-                  }}
-                >
-                  <div>
-                    {/* Course Code & Credit Badges */}
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.5rem' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                        <span style={{
-                          background: 'linear-gradient(135deg, #1e3a8a, #2563eb)',
-                          color: '#ffffff',
-                          fontWeight: 800,
-                          fontSize: '0.8rem',
-                          padding: '0.2rem 0.55rem',
-                          borderRadius: '6px'
-                        }}>
-                          {course.course_code}
-                        </span>
-
-                        <span style={{
-                          background: course.course_type === 'LAB' ? 'rgba(236, 72, 153, 0.15)' : 'rgba(16, 185, 129, 0.15)',
-                          color: course.course_type === 'LAB' ? '#f472b6' : '#34d399',
-                          fontWeight: 700,
-                          fontSize: '0.725rem',
-                          padding: '0.15rem 0.5rem',
-                          borderRadius: '6px'
-                        }}>
-                          {course.course_type} • {course.credit_hours} CR
-                        </span>
-                      </div>
-
-                      <span style={{ fontSize: '0.7rem', color: '#94a3b8', fontWeight: 600 }}>
-                        {course.semester_name || course.term_code}
-                      </span>
-                    </div>
-
-                    {/* Course Title */}
-                    <h4 style={{
-                      fontSize: '1.05rem',
-                      fontWeight: 800,
-                      color: '#ffffff',
-                      margin: '0.4rem 0 0.85rem 0',
-                      lineHeight: 1.35
-                    }}>
-                      {course.course_title}
-                    </h4>
-
-                    {/* Assigned Course Teacher Information Box */}
-                    <div style={{
-                      background: 'rgba(15, 23, 42, 0.8)',
-                      border: '1px solid rgba(255, 255, 255, 0.08)',
-                      borderRadius: '10px',
-                      padding: '0.85rem',
-                      marginBottom: '1rem'
-                    }}>
-                      <div style={{ display: 'flex', alignItems: 'flex-start', gap: '0.75rem' }}>
-                        {/* Teacher Avatar / Photo */}
-                        <div style={{
-                          width: '42px',
-                          height: '42px',
-                          borderRadius: '10px',
-                          background: 'linear-gradient(135deg, #3b82f6, #6366f1)',
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          color: '#ffffff',
-                          fontWeight: 800,
-                          fontSize: '0.95rem',
-                          overflow: 'hidden',
-                          flexShrink: 0
-                        }}>
-                          {course.assigned_teacher_photo ? (
-                            <img
-                              src={course.assigned_teacher_photo}
-                              alt={course.assigned_teacher_name}
-                              style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-                              onError={e => { e.currentTarget.style.display = 'none'; }}
-                            />
-                          ) : (
-                            course.assigned_teacher_name ? course.assigned_teacher_name[0] : 'T'
-                          )}
-                        </div>
-
-                        {/* Teacher Name & Bio Details */}
-                        <div style={{ flex: 1, minWidth: 0 }}>
-                          <div style={{ fontSize: '0.875rem', fontWeight: 700, color: '#ffffff', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                            {course.assigned_teacher_name || 'Unassigned Faculty'}
-                          </div>
-
-                          <div style={{ fontSize: '0.725rem', color: '#60a5fa', fontWeight: 600 }}>
-                            {course.assigned_teacher_designation || 'Faculty Member'}
-                          </div>
-
-                          <div style={{ fontSize: '0.7rem', color: '#94a3b8', display: 'flex', alignItems: 'center', gap: '0.3rem', marginTop: '0.2rem' }}>
-                            <Building2 size={11} />
-                            <span>Dept: {course.assigned_teacher_department || 'CSE'}</span>
-                            {course.assigned_teacher_room && (
-                              <span>• {course.assigned_teacher_room}</span>
-                            )}
-                          </div>
-                        </div>
-                      </div>
-
-                      {/* Security Ownership Badge */}
-                      <div style={{ marginTop: '0.6rem', paddingTop: '0.5rem', borderTop: '1px solid rgba(255, 255, 255, 0.06)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                        {isAssignedToUser ? (
-                          <span style={{ fontSize: '0.7rem', color: '#34d399', fontWeight: 800, display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
-                            <Unlock size={12} /> You are Course Teacher (Full Edit)
-                          </span>
-                        ) : (
-                          <span style={{ fontSize: '0.7rem', color: '#94a3b8', display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
-                            <Lock size={12} /> View-Only Access
-                          </span>
-                        )}
-
-                        <span style={{ fontSize: '0.7rem', color: '#a5b4fc', fontWeight: 600 }}>
-                          {course.enrolled_students_count || 12} Students
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Card Bottom CTA */}
-                  <div style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                    paddingTop: '0.75rem',
-                    borderTop: '1px solid rgba(255, 255, 255, 0.08)'
-                  }}>
-                    <span style={{
-                      fontSize: '0.725rem',
-                      fontWeight: 700,
-                      color: course.assessed_students_count > 0 ? '#10b981' : '#f59e0b',
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '0.3rem'
-                    }}>
-                      <CheckCircle2 size={13} />
-                      {course.assessed_students_count > 0 
-                        ? `${course.assessed_students_count} Evaluated` 
-                        : 'Evaluation Pending'}
-                    </span>
-
-                    <span style={{
-                      fontSize: '0.775rem',
-                      fontWeight: 700,
-                      color: '#60a5fa',
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '0.2rem'
-                    }}>
-                      Open Mark Sheet <ChevronRight size={14} />
-                    </span>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        )}
-      </div>
-
-      {/* 3. CONTINUOUS ASSESSMENT GRADE SHEET MODAL (WHEN A COURSE IS CLICKED) */}
-      {selectedCourse && (
-        <div style={{
-          position: 'fixed',
-          top: 0,
-          left: 0,
-          right: 0,
-          bottom: 0,
-          background: 'rgba(5, 10, 20, 0.85)',
-          backdropFilter: 'blur(8px)',
-          zIndex: 1000,
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          padding: '1.5rem',
-          animation: 'fadeIn 0.2s ease'
-        }}>
-          <div style={{
-            background: '#0f172a',
-            border: '1px solid #1e293b',
-            borderRadius: '18px',
-            width: '100%',
-            maxWidth: '1280px',
-            maxHeight: '92vh',
-            display: 'flex',
-            flexDirection: 'column',
-            boxShadow: '0 25px 60px rgba(0, 0, 0, 0.65)',
-            overflow: 'hidden'
-          }}>
-            {/* Modal Header */}
+          {/* Unassigned Courses Tray / Administrative Alert (Requirement 3) */}
+          {coursesData.unassignedCourses.length > 0 && (
             <div style={{
-              padding: '1.25rem 1.75rem',
-              borderBottom: '1px solid #1e293b',
-              background: 'linear-gradient(135deg, #09101d 0%, #0f172a 100%)',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              gap: '1rem'
+              padding: '1.15rem 1.35rem',
+              background: 'rgba(245, 158, 11, 0.08)',
+              border: '1px solid rgba(245, 158, 11, 0.3)',
+              borderRadius: '14px',
+              marginBottom: '1.5rem'
             }}>
-              <div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem' }}>
-                  <span style={{
-                    background: 'linear-gradient(135deg, #2563eb, #3b82f6)',
-                    color: '#ffffff',
-                    fontWeight: 800,
-                    fontSize: '0.8rem',
-                    padding: '0.2rem 0.6rem',
-                    borderRadius: '6px'
-                  }}>
-                    {selectedCourse.course_code}
-                  </span>
-                  <h3 style={{ fontSize: '1.35rem', fontWeight: 800, margin: 0, color: '#ffffff' }}>
-                    {selectedCourse.course_title}
-                  </h3>
-                  <span style={{ fontSize: '0.75rem', color: '#94a3b8' }}>
-                    • {selectedCourse.semester_name || selectedCourse.term_code} • {selectedCourse.session_name || currentSelectedSession?.session_name}
-                  </span>
-                </div>
-
-                <div style={{ fontSize: '0.8rem', color: '#cbd5e1', marginTop: '0.35rem', display: 'flex', alignItems: 'center', gap: '1rem' }}>
-                  <span>
-                    <strong>Teacher:</strong> {selectedCourse.assigned_teacher_name || 'Dr. Mahmudur Rahman'} ({selectedCourse.assigned_teacher_designation}, Dept: {selectedCourse.assigned_teacher_department || 'CSE'})
-                  </span>
-                  {selectedCourse.assigned_teacher_room && (
-                    <span>• Room: {selectedCourse.assigned_teacher_room}</span>
-                  )}
-                </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem', color: '#fbbf24', marginBottom: '0.45rem' }}>
+                <AlertTriangle size={18} />
+                <h4 style={{ margin: 0, fontSize: '0.92rem', fontWeight: 700 }}>
+                  Administrative Notice: {coursesData.unassignedCourses.length} Courses Pending Teacher Assignment in Routine Module
+                </h4>
               </div>
-
-              <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem' }}>
-                <button
-                  onClick={handleExportCSV}
-                  title="Export Grade Sheet to CSV"
-                  style={{
-                    background: 'rgba(30, 41, 59, 0.8)',
-                    border: '1px solid #334155',
-                    color: '#cbd5e1',
-                    padding: '0.55rem 0.9rem',
-                    borderRadius: '8px',
-                    fontSize: '0.8rem',
-                    fontWeight: 700,
-                    cursor: 'pointer',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '0.4rem'
-                  }}
-                >
-                  <Download size={14} /> Export CSV
-                </button>
-
-                <button
-                  onClick={() => window.print()}
-                  title="Print Grade Sheet"
-                  style={{
-                    background: 'rgba(30, 41, 59, 0.8)',
-                    border: '1px solid #334155',
-                    color: '#cbd5e1',
-                    padding: '0.55rem 0.9rem',
-                    borderRadius: '8px',
-                    fontSize: '0.8rem',
-                    fontWeight: 700,
-                    cursor: 'pointer',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '0.4rem'
-                  }}
-                >
-                  <Printer size={14} /> Print
-                </button>
-
-                <button
-                  onClick={() => setSelectedCourse(null)}
-                  style={{
-                    background: 'rgba(255, 255, 255, 0.08)',
-                    border: 'none',
-                    borderRadius: '8px',
-                    color: '#cbd5e1',
-                    width: '34px',
-                    height: '34px',
-                    cursor: 'pointer',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center'
-                  }}
-                >
-                  <X size={18} />
-                </button>
-              </div>
-            </div>
-
-            {/* Strict Authorization Banner */}
-            <div style={{
-              padding: '0.75rem 1.75rem',
-              background: marksData?.canEdit 
-                ? 'linear-gradient(90deg, rgba(16, 185, 129, 0.15), rgba(5, 150, 105, 0.1))' 
-                : 'linear-gradient(90deg, rgba(245, 158, 11, 0.15), rgba(217, 119, 6, 0.08))',
-              borderBottom: '1px solid #1e293b',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              flexWrap: 'wrap',
-              gap: '0.75rem'
-            }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem' }}>
-                {marksData?.canEdit ? (
-                  <>
-                    <Unlock size={18} style={{ color: '#34d399' }} />
-                    <span style={{ fontSize: '0.825rem', color: '#d1fae5', fontWeight: 600 }}>
-                      <strong>Authorized Course Teacher Edit Mode:</strong> You are the designated instructor for this course. You can record CT 1-3 marks, class attendance, and finalize the continuous assessment matrix.
-                    </span>
-                  </>
-                ) : (
-                  <>
-                    <Lock size={18} style={{ color: '#fbbf24' }} />
-                    <span style={{ fontSize: '0.825rem', color: '#fef3c7', fontWeight: 600 }}>
-                      <strong>🔒 View-Only Mode:</strong> Continuous assessment marks can only be entered or modified by the assigned course teacher: <strong>{selectedCourse.assigned_teacher_name || 'Designated Faculty'}</strong>. All values below are locked.
-                    </span>
-                  </>
-                )}
-              </div>
-
-              {/* Action Buttons for Authorized Teacher */}
-              {marksData?.canEdit && (
-                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                  <button
-                    onClick={handleFillDemoMarks}
+              <p style={{ margin: '0 0 0.75rem', fontSize: '0.8rem', color: '#cbd5e1', lineHeight: 1.5 }}>
+                According to departmental policy, assessment marks can only be entered by assigned course teachers. 
+                These courses currently have no teacher allocated in the Routine module. Please assign faculty through the Routine builder to enable marks evaluation.
+              </p>
+              
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem' }}>
+                {coursesData.unassignedCourses.map(uc => (
+                  <span
+                    key={uc.id}
                     style={{
-                      background: 'rgba(99, 102, 241, 0.2)',
-                      border: '1px solid #818cf8',
-                      color: '#c7d2fe',
-                      padding: '0.45rem 0.8rem',
-                      borderRadius: '8px',
-                      fontSize: '0.775rem',
+                      fontSize: '0.72rem',
                       fontWeight: 700,
-                      cursor: 'pointer',
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '0.35rem'
-                    }}
-                  >
-                    <Sparkles size={13} /> Auto-Fill Demo Marks
-                  </button>
-
-                  <button
-                    onClick={handleSaveMatrix}
-                    disabled={savingMarks || !isDirty}
-                    style={{
-                      background: isDirty ? 'linear-gradient(135deg, #10b981, #059669)' : 'rgba(30, 41, 59, 0.6)',
-                      border: isDirty ? 'none' : '1px solid #334155',
-                      color: isDirty ? '#ffffff' : '#64748b',
-                      padding: '0.45rem 1rem',
-                      borderRadius: '8px',
-                      fontSize: '0.8rem',
-                      fontWeight: 800,
-                      cursor: isDirty ? 'pointer' : 'not-allowed',
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '0.4rem',
-                      boxShadow: isDirty ? '0 4px 12px rgba(16, 185, 129, 0.35)' : 'none'
-                    }}
-                  >
-                    <Save size={14} className={savingMarks ? 'spin-animation' : ''} />
-                    <span>{savingMarks ? 'Saving...' : isDirty ? 'Save Changes' : 'Saved'}</span>
-                  </button>
-                </div>
-              )}
-            </div>
-
-            {/* Class Aggregate Statistics Bar */}
-            {marksData?.stats && (
-              <div style={{
-                padding: '0.85rem 1.75rem',
-                background: '#09101d',
-                borderBottom: '1px solid #1e293b',
-                display: 'grid',
-                gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))',
-                gap: '1rem',
-                fontSize: '0.8rem'
-              }}>
-                <div>
-                  <div style={{ color: '#94a3b8', fontSize: '0.7rem' }}>Enrolled Cohort</div>
-                  <div style={{ fontSize: '1.15rem', fontWeight: 800, color: '#ffffff' }}>
-                    {marksData.stats.totalEnrolled} Students
-                  </div>
-                </div>
-
-                <div>
-                  <div style={{ color: '#94a3b8', fontSize: '0.7rem' }}>Evaluated Students</div>
-                  <div style={{ fontSize: '1.15rem', fontWeight: 800, color: '#34d399' }}>
-                    {marksData.stats.totalEvaluated} / {marksData.stats.totalEnrolled}
-                  </div>
-                </div>
-
-                <div>
-                  <div style={{ color: '#94a3b8', fontSize: '0.7rem' }}>Average Score (/30)</div>
-                  <div style={{ fontSize: '1.15rem', fontWeight: 800, color: '#60a5fa' }}>
-                    {marksData.stats.avgScore} <span style={{ fontSize: '0.75rem', color: '#94a3b8' }}>({((marksData.stats.avgScore / 30) * 100).toFixed(1)}%)</span>
-                  </div>
-                </div>
-
-                <div>
-                  <div style={{ color: '#94a3b8', fontSize: '0.7rem' }}>Highest Mark (/30)</div>
-                  <div style={{ fontSize: '1.15rem', fontWeight: 800, color: '#a78bfa' }}>
-                    {marksData.stats.highestScore}
-                  </div>
-                </div>
-
-                <div>
-                  <div style={{ color: '#94a3b8', fontSize: '0.7rem' }}>Lowest Mark (/30)</div>
-                  <div style={{ fontSize: '1.15rem', fontWeight: 800, color: '#f87171' }}>
-                    {marksData.stats.lowestScore}
-                  </div>
-                </div>
-
-                <div>
-                  <div style={{ color: '#94a3b8', fontSize: '0.7rem' }}>Pass Rate (&gt;40%)</div>
-                  <div style={{ fontSize: '1.15rem', fontWeight: 800, color: '#34d399' }}>
-                    {marksData.stats.totalEvaluated > 0 ? `${((marksData.stats.passCount / marksData.stats.totalEvaluated) * 100).toFixed(0)}%` : '0%'}
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* Filter Bar inside Modal */}
-            <div style={{
-              padding: '0.75rem 1.75rem',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              gap: '1rem',
-              background: '#0f172a',
-              borderBottom: '1px solid #1e293b'
-            }}>
-              <div style={{ position: 'relative', width: '280px' }}>
-                <Search size={15} style={{ position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)', color: '#64748b' }} />
-                <input
-                  type="text"
-                  placeholder="Filter student roll or name..."
-                  value={studentSearch}
-                  onChange={e => setStudentSearch(e.target.value)}
-                  style={{
-                    width: '100%',
-                    padding: '0.45rem 0.75rem 0.45rem 2rem',
-                    background: 'rgba(30, 41, 59, 0.6)',
-                    border: '1px solid #334155',
-                    borderRadius: '8px',
-                    color: '#ffffff',
-                    fontSize: '0.8rem',
-                    outline: 'none'
-                  }}
-                />
-              </div>
-
-              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                <span style={{ fontSize: '0.75rem', color: '#94a3b8' }}>Filter Status:</span>
-                {['ALL', 'EVALUATED', 'PENDING', 'AT_RISK'].map(f => (
-                  <button
-                    key={f}
-                    onClick={() => setStatusFilter(f)}
-                    style={{
-                      background: statusFilter === f ? '#2563eb' : 'rgba(30, 41, 59, 0.5)',
-                      color: statusFilter === f ? '#ffffff' : '#94a3b8',
-                      border: '1px solid #334155',
-                      padding: '0.35rem 0.65rem',
+                      padding: '0.2rem 0.6rem',
                       borderRadius: '6px',
-                      fontSize: '0.725rem',
-                      fontWeight: 700,
-                      cursor: 'pointer'
+                      background: 'rgba(245, 158, 11, 0.15)',
+                      color: '#fef08a',
+                      border: '1px solid rgba(245, 158, 11, 0.25)'
                     }}
                   >
-                    {f}
-                  </button>
+                    {uc.course_code}: {uc.course_title} ({uc.credit_hours} Cr)
+                  </span>
                 ))}
               </div>
             </div>
+          )}
 
-            {/* Student Continuous Assessment Matrix Table */}
-            <div style={{ flex: 1, overflowY: 'auto', padding: '0.5rem 1.75rem' }}>
-              {loadingMarks ? (
-                <div style={{ padding: '3rem', textAlign: 'center', color: '#94a3b8' }}>
-                  <RefreshCw size={24} className="spin-animation" style={{ margin: '0 auto 0.5rem auto', color: '#3b82f6' }} />
-                  <div>Loading student evaluation records...</div>
-                </div>
-              ) : filteredMatrix.length === 0 ? (
-                <div style={{ padding: '3rem', textAlign: 'center', color: '#94a3b8' }}>
-                  No students matching your filter.
-                </div>
-              ) : (
-                <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '0.825rem' }}>
-                  <thead>
-                    <tr style={{ borderBottom: '2px solid #334155', color: '#94a3b8' }}>
-                      <th style={{ padding: '0.75rem 0.5rem', width: '40px' }}>#</th>
-                      <th style={{ padding: '0.75rem 0.5rem', minWidth: '180px' }}>Student Roll & Name</th>
-                      <th style={{ padding: '0.75rem 0.5rem', width: '90px', textAlign: 'center' }}>CT-1 (/10)</th>
-                      <th style={{ padding: '0.75rem 0.5rem', width: '90px', textAlign: 'center' }}>CT-2 (/10)</th>
-                      <th style={{ padding: '0.75rem 0.5rem', width: '90px', textAlign: 'center' }}>CT-3 (/10)</th>
-                      <th style={{ padding: '0.75rem 0.5rem', width: '110px', textAlign: 'center', background: 'rgba(59, 130, 246, 0.05)' }}>Best 2 (/20)</th>
-                      <th style={{ padding: '0.75rem 0.5rem', width: '95px', textAlign: 'center' }}>Attendance (/10)</th>
-                      <th style={{ padding: '0.75rem 0.5rem', width: '115px', textAlign: 'center', background: 'rgba(16, 185, 129, 0.08)' }}>Total (/30)</th>
-                      <th style={{ padding: '0.75rem 0.5rem', width: '80px', textAlign: 'center' }}>Grade</th>
-                      <th style={{ padding: '0.75rem 0.5rem', minWidth: '160px' }}>Remarks / Feedback</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {filteredMatrix.map((st, idx) => {
-                      const canEdit = marksData?.canEdit;
-                      return (
-                        <tr key={st.studentId} style={{ borderBottom: '1px solid #1e293b', transition: 'background 0.15s ease' }}>
-                          <td style={{ padding: '0.65rem 0.5rem', color: '#64748b' }}>{idx + 1}</td>
-                          
-                          {/* Student Details */}
-                          <td style={{ padding: '0.65rem 0.5rem' }}>
-                            <div style={{ fontWeight: 700, color: '#ffffff' }}>
-                              {st.studentRoll}
+          {/* Assigned Courses Grid (Ready for Teacher Assessment) */}
+          <div style={{ marginBottom: '1rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <h3 style={{ fontSize: '1.05rem', fontWeight: 800, margin: 0, color: '#ffffff' }}>
+              Assigned Courses for Assessment ({coursesData.assignedCourses.length})
+            </h3>
+            <span style={{ fontSize: '0.75rem', color: '#94a3b8' }}>
+              Showing courses with verified faculty allocation
+            </span>
+          </div>
+
+          {loadingCourses ? (
+            <div style={{ textAlign: 'center', padding: '3rem', color: '#94a3b8' }}>
+              <RefreshCw size={28} className="spin" style={{ margin: '0 auto 0.75rem', color: '#3b82f6' }} />
+              <p style={{ fontSize: '0.85rem' }}>Loading course allocations from database...</p>
+            </div>
+          ) : coursesData.assignedCourses.length === 0 ? (
+            <div style={{
+              textAlign: 'center',
+              padding: '3rem 1.5rem',
+              background: 'rgba(30, 41, 59, 0.4)',
+              borderRadius: '14px',
+              border: '1px dashed rgba(255, 255, 255, 0.12)'
+            }}>
+              <BookOpen size={40} style={{ color: '#64748b', margin: '0 auto 0.75rem' }} />
+              <h4 style={{ margin: '0 0 0.35rem', color: '#ffffff', fontSize: '1rem' }}>No Assigned Courses Available</h4>
+              <p style={{ fontSize: '0.8rem', color: '#94a3b8', margin: 0 }}>
+                No courses currently have teachers assigned in the Routine module for this semester.
+              </p>
+            </div>
+          ) : (
+            <div style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(auto-fill, minmax(360px, 1fr))',
+              gap: '1.25rem'
+            }}>
+              {coursesData.assignedCourses
+                .filter(c => c.course_code.toLowerCase().includes(courseSearchQuery.toLowerCase()) || c.course_title.toLowerCase().includes(courseSearchQuery.toLowerCase()))
+                .map(course => {
+                  const isUserAssigned = Boolean(course.is_user_assigned_teacher);
+                  const isLocked = Boolean(course.is_locked);
+
+                  return (
+                    <div
+                      key={course.id}
+                      style={{
+                        background: 'linear-gradient(145deg, rgba(30, 41, 59, 0.8) 0%, rgba(15, 23, 42, 0.9) 100%)',
+                        borderRadius: '14px',
+                        border: isUserAssigned ? '1px solid rgba(16, 185, 129, 0.4)' : '1px solid rgba(255, 255, 255, 0.08)',
+                        padding: '1.25rem',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        justifyContent: 'space-between',
+                        boxShadow: '0 6px 20px rgba(0, 0, 0, 0.25)',
+                        position: 'relative'
+                      }}
+                    >
+                      <div>
+                        {/* Course Code & Type Badge */}
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.5rem' }}>
+                          <span style={{ fontSize: '1.1rem', fontWeight: 800, color: '#38bdf8', letterSpacing: '-0.01em' }}>
+                            {course.course_code}
+                          </span>
+                          <span style={{
+                            fontSize: '0.68rem',
+                            fontWeight: 700,
+                            padding: '0.15rem 0.5rem',
+                            borderRadius: '6px',
+                            background: course.course_type === 'Theory' ? 'rgba(59, 130, 246, 0.15)' : 'rgba(168, 85, 247, 0.15)',
+                            color: course.course_type === 'Theory' ? '#60a5fa' : '#c084fc'
+                          }}>
+                            {course.course_type || 'Theory'} • {course.credit_hours} Cr
+                          </span>
+                        </div>
+
+                        {/* Title */}
+                        <h4 style={{ fontSize: '0.98rem', fontWeight: 700, margin: '0 0 0.85rem', color: '#f1f5f9', lineHeight: 1.35 }}>
+                          {course.course_title}
+                        </h4>
+
+                        {/* Assigned Teacher Card */}
+                        <div style={{
+                          padding: '0.65rem 0.85rem',
+                          background: 'rgba(15, 23, 42, 0.6)',
+                          borderRadius: '10px',
+                          border: '1px solid rgba(255, 255, 255, 0.06)',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '0.65rem',
+                          marginBottom: '0.85rem'
+                        }}>
+                          <div style={{
+                            width: '34px',
+                            height: '34px',
+                            borderRadius: '50%',
+                            background: 'linear-gradient(135deg, #10b981, #059669)',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            color: '#ffffff',
+                            fontWeight: 800,
+                            fontSize: '0.75rem',
+                            flexShrink: 0
+                          }}>
+                            {course.assigned_teacher_name?.[0] || 'T'}
+                          </div>
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <div style={{ fontSize: '0.85rem', fontWeight: 700, color: '#ffffff', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                              {course.assigned_teacher_name}
                             </div>
-                            <div style={{ fontSize: '0.725rem', color: '#94a3b8' }}>
-                              {st.studentName} • {st.registrationNo}
+                            <div style={{ fontSize: '0.7rem', color: '#94a3b8', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                              {course.assigned_teacher_designation || 'Faculty Member'} • {course.assigned_teacher_department || 'CSE'}
                             </div>
-                          </td>
+                          </div>
+                        </div>
 
-                          {/* CT 1 */}
-                          <td style={{ padding: '0.65rem 0.5rem', textAlign: 'center' }}>
-                            {canEdit ? (
-                              <input
-                                type="number"
-                                step="0.5"
-                                min="0"
-                                max="10"
-                                value={st.ct1 ?? ''}
-                                onChange={e => handleMarkChange(st.studentId, 'ct1', e.target.value)}
-                                style={{
-                                  width: '65px',
-                                  padding: '0.35rem',
-                                  textAlign: 'center',
-                                  background: 'rgba(30, 41, 59, 0.8)',
-                                  border: '1px solid #475569',
-                                  borderRadius: '6px',
-                                  color: '#ffffff',
-                                  fontWeight: 700,
-                                  fontSize: '0.825rem'
-                                }}
-                              />
-                            ) : (
-                              <span style={{ fontWeight: 700, color: st.ct1 !== null ? '#ffffff' : '#64748b' }}>
-                                {st.ct1 !== null ? st.ct1 : '-'}
-                              </span>
-                            )}
-                          </td>
+                        {/* Status & Assessment Progress */}
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: '0.75rem', marginBottom: '1rem' }}>
+                          <span style={{ color: '#94a3b8' }}>Status:</span>
+                          <span style={{
+                            fontWeight: 700,
+                            padding: '0.15rem 0.5rem',
+                            borderRadius: '6px',
+                            background: isLocked ? 'rgba(100, 116, 139, 0.2)' : 'rgba(16, 185, 129, 0.15)',
+                            color: isLocked ? '#94a3b8' : '#34d399'
+                          }}>
+                            {course.status}
+                          </span>
+                        </div>
+                      </div>
 
-                          {/* CT 2 */}
-                          <td style={{ padding: '0.65rem 0.5rem', textAlign: 'center' }}>
-                            {canEdit ? (
-                              <input
-                                type="number"
-                                step="0.5"
-                                min="0"
-                                max="10"
-                                value={st.ct2 ?? ''}
-                                onChange={e => handleMarkChange(st.studentId, 'ct2', e.target.value)}
-                                style={{
-                                  width: '65px',
-                                  padding: '0.35rem',
-                                  textAlign: 'center',
-                                  background: 'rgba(30, 41, 59, 0.8)',
-                                  border: '1px solid #475569',
-                                  borderRadius: '6px',
-                                  color: '#ffffff',
-                                  fontWeight: 700,
-                                  fontSize: '0.825rem'
-                                }}
-                              />
-                            ) : (
-                              <span style={{ fontWeight: 700, color: st.ct2 !== null ? '#ffffff' : '#64748b' }}>
-                                {st.ct2 !== null ? st.ct2 : '-'}
-                              </span>
-                            )}
-                          </td>
+                      {/* Open Assessment Sheet Button */}
+                      <button
+                        onClick={() => handleOpenAssessmentSheet(course)}
+                        style={{
+                          width: '100%',
+                          padding: '0.7rem',
+                          borderRadius: '10px',
+                          background: isUserAssigned 
+                            ? 'linear-gradient(135deg, #059669, #10b981)' 
+                            : 'rgba(255, 255, 255, 0.08)',
+                          border: isUserAssigned ? 'none' : '1px solid rgba(255, 255, 255, 0.12)',
+                          color: '#ffffff',
+                          fontWeight: 700,
+                          fontSize: '0.82rem',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          gap: '0.45rem',
+                          cursor: 'pointer'
+                        }}
+                      >
+                        <FileSpreadsheet size={16} />
+                        <span>{isUserAssigned && !isLocked ? 'Enter Assessment Marks' : 'View Assessment Sheet'}</span>
+                      </button>
+                    </div>
+                  );
+                })}
+            </div>
+          )}
+        </div>
+      )}
 
-                          {/* CT 3 */}
-                          <td style={{ padding: '0.65rem 0.5rem', textAlign: 'center' }}>
-                            {canEdit ? (
-                              <input
-                                type="number"
-                                step="0.5"
-                                min="0"
-                                max="10"
-                                value={st.ct3 ?? ''}
-                                onChange={e => handleMarkChange(st.studentId, 'ct3', e.target.value)}
-                                style={{
-                                  width: '65px',
-                                  padding: '0.35rem',
-                                  textAlign: 'center',
-                                  background: 'rgba(30, 41, 59, 0.8)',
-                                  border: '1px solid #475569',
-                                  borderRadius: '6px',
-                                  color: '#ffffff',
-                                  fontWeight: 700,
-                                  fontSize: '0.825rem'
-                                }}
-                              />
-                            ) : (
-                              <span style={{ fontWeight: 700, color: st.ct3 !== null ? '#ffffff' : '#64748b' }}>
-                                {st.ct3 !== null ? st.ct3 : '-'}
-                              </span>
-                            )}
-                          </td>
+      {/* ========================================================================= */}
+      {/* 3. SPREADSHEET ASSESSMENT SHEET VIEW (Interactive Mark Entry & A4 Print) */}
+      {/* ========================================================================= */}
+      {viewMode === 'ASSESSMENT_SHEET' && marksSheetData && selectedCourse && (
+        <div className="course-assessment-sheet-view">
+          
+          {/* Action Toolbar (Hidden during print) */}
+          <div className="no-print" style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            flexWrap: 'wrap',
+            gap: '1rem',
+            padding: '1.15rem 1.35rem',
+            background: 'linear-gradient(135deg, rgba(30, 41, 59, 0.9), rgba(15, 23, 42, 0.95))',
+            borderRadius: '14px',
+            border: '1px solid rgba(255, 255, 255, 0.08)',
+            marginBottom: '1.25rem',
+            boxShadow: '0 8px 25px rgba(0, 0, 0, 0.35)'
+          }}>
+            {/* Left Info: Back & Course Details */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.85rem' }}>
+              <button
+                onClick={() => setViewMode('SESSION_COURSES')}
+                style={{
+                  width: '36px',
+                  height: '36px',
+                  borderRadius: '10px',
+                  background: 'rgba(255, 255, 255, 0.06)',
+                  border: '1px solid rgba(255, 255, 255, 0.12)',
+                  color: '#ffffff',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  cursor: 'pointer'
+                }}
+                title="Back to Courses"
+              >
+                <ArrowLeft size={16} />
+              </button>
 
-                          {/* Best 2 Total (Max 20) */}
-                          <td style={{ padding: '0.65rem 0.5rem', textAlign: 'center', background: 'rgba(59, 130, 246, 0.05)' }}>
-                            <span style={{
-                              fontWeight: 800,
-                              color: st.best2Total !== null ? '#93c5fd' : '#64748b',
-                              fontSize: '0.85rem'
-                            }}>
-                              {st.best2Total !== null ? `${st.best2Total} / 20` : '-'}
-                            </span>
-                          </td>
-
-                          {/* Attendance (Max 10) */}
-                          <td style={{ padding: '0.65rem 0.5rem', textAlign: 'center' }}>
-                            {canEdit ? (
-                              <input
-                                type="number"
-                                step="0.5"
-                                min="0"
-                                max="10"
-                                value={st.attendance ?? ''}
-                                onChange={e => handleMarkChange(st.studentId, 'attendance', e.target.value)}
-                                style={{
-                                  width: '65px',
-                                  padding: '0.35rem',
-                                  textAlign: 'center',
-                                  background: 'rgba(30, 41, 59, 0.8)',
-                                  border: '1px solid #475569',
-                                  borderRadius: '6px',
-                                  color: '#34d399',
-                                  fontWeight: 700,
-                                  fontSize: '0.825rem'
-                                }}
-                              />
-                            ) : (
-                              <span style={{ fontWeight: 700, color: st.attendance !== null ? '#34d399' : '#64748b' }}>
-                                {st.attendance !== null ? st.attendance : '-'}
-                              </span>
-                            )}
-                          </td>
-
-                          {/* Continuous Total (Max 30) */}
-                          <td style={{ padding: '0.65rem 0.5rem', textAlign: 'center', background: 'rgba(16, 185, 129, 0.08)' }}>
-                            <span style={{
-                              fontWeight: 800,
-                              color: st.totalContinuous !== null ? '#6ee7b7' : '#64748b',
-                              fontSize: '0.9rem'
-                            }}>
-                              {st.totalContinuous !== null ? `${st.totalContinuous} / 30` : '-'}
-                            </span>
-                          </td>
-
-                          {/* Projected Grade */}
-                          <td style={{ padding: '0.65rem 0.5rem', textAlign: 'center' }}>
-                            <span style={{
-                              padding: '0.2rem 0.5rem',
-                              borderRadius: '6px',
-                              fontWeight: 800,
-                              fontSize: '0.75rem',
-                              background: st.grade === 'A+' ? 'rgba(16, 185, 129, 0.2)' : st.grade === 'F' ? 'rgba(239, 68, 68, 0.2)' : 'rgba(59, 130, 246, 0.15)',
-                              color: st.grade === 'A+' ? '#34d399' : st.grade === 'F' ? '#f87171' : '#60a5fa'
-                            }}>
-                              {st.grade || '-'}
-                            </span>
-                          </td>
-
-                          {/* Remarks */}
-                          <td style={{ padding: '0.65rem 0.5rem' }}>
-                            {canEdit ? (
-                              <input
-                                type="text"
-                                placeholder="Add notes..."
-                                value={st.remarks || ''}
-                                onChange={e => handleRemarksChange(st.studentId, e.target.value)}
-                                style={{
-                                  width: '100%',
-                                  padding: '0.35rem 0.5rem',
-                                  background: 'rgba(30, 41, 59, 0.6)',
-                                  border: '1px solid #334155',
-                                  borderRadius: '6px',
-                                  color: '#cbd5e1',
-                                  fontSize: '0.775rem'
-                                }}
-                              />
-                            ) : (
-                              <span style={{ color: '#94a3b8', fontSize: '0.775rem' }}>
-                                {st.remarks || '-'}
-                              </span>
-                            )}
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              )}
+              <div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem' }}>
+                  <h2 style={{ fontSize: '1.25rem', fontWeight: 800, margin: 0, color: '#ffffff' }}>
+                    {selectedCourse.course_code} — {selectedCourse.course_title}
+                  </h2>
+                  <span style={{
+                    fontSize: '0.68rem',
+                    fontWeight: 700,
+                    padding: '0.15rem 0.5rem',
+                    borderRadius: '6px',
+                    background: marksSheetData.isLocked ? '#475569' : '#059669',
+                    color: '#ffffff'
+                  }}>
+                    {marksSheetData.status}
+                  </span>
+                </div>
+                <div style={{ fontSize: '0.78rem', color: '#94a3b8', marginTop: '0.15rem' }}>
+                  Faculty: <strong style={{ color: '#ffffff' }}>{selectedCourse.assigned_teacher_name}</strong> • Session: {selectedCourse.session_name} • {selectedCourse.semester_name}
+                </div>
+              </div>
             </div>
 
-            {/* Modal Footer */}
-            <div style={{
-              padding: '1rem 1.75rem',
-              borderTop: '1px solid #1e293b',
-              background: '#09101d',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between'
-            }}>
-              <div style={{ fontSize: '0.75rem', color: '#94a3b8' }}>
-                PUST CSE Continuous Assessment Breakdown: Best 2 Class Tests (20 Marks) + Class Attendance (10 Marks) = 30 Marks Total
-              </div>
+            {/* Right Buttons: Save, Print, Publish, Reopen */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem', flexWrap: 'wrap' }}>
+              
+              {/* Print Assessment Sheet Button (Requirement 13) */}
+              <button
+                onClick={handlePrintAssessmentSheet}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '0.45rem',
+                  fontSize: '0.82rem',
+                  fontWeight: 700,
+                  padding: '0.55rem 1rem',
+                  background: 'rgba(255, 255, 255, 0.08)',
+                  border: '1px solid rgba(255, 255, 255, 0.15)',
+                  color: '#ffffff',
+                  borderRadius: '8px',
+                  cursor: 'pointer'
+                }}
+              >
+                <Printer size={16} />
+                <span>Print Assessment Sheet</span>
+              </button>
 
-              <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-                {marksData?.canEdit && (
-                  <button
-                    onClick={handleSaveMatrix}
-                    disabled={savingMarks || !isDirty}
-                    style={{
-                      background: 'linear-gradient(135deg, #10b981, #059669)',
-                      color: '#ffffff',
-                      border: 'none',
-                      padding: '0.55rem 1.25rem',
-                      borderRadius: '8px',
-                      fontWeight: 800,
-                      fontSize: '0.85rem',
-                      cursor: isDirty ? 'pointer' : 'default',
-                      opacity: isDirty ? 1 : 0.6,
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '0.4rem'
-                    }}
-                  >
-                    <Save size={15} />
-                    <span>{savingMarks ? 'Saving Changes...' : 'Save Assessment Marks'}</span>
-                  </button>
-                )}
-
+              {/* Save Marks Button */}
+              {marksSheetData.canEdit && (
                 <button
-                  onClick={() => setSelectedCourse(null)}
+                  onClick={handleSaveMarks}
+                  disabled={savingSheet || !isDirty}
                   style={{
-                    background: 'rgba(30, 41, 59, 0.8)',
-                    border: '1px solid #334155',
-                    color: '#cbd5e1',
-                    padding: '0.55rem 1.1rem',
-                    borderRadius: '8px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '0.45rem',
+                    fontSize: '0.82rem',
                     fontWeight: 700,
-                    fontSize: '0.85rem',
+                    padding: '0.55rem 1.15rem',
+                    background: isDirty ? 'linear-gradient(135deg, #10b981, #059669)' : 'rgba(255, 255, 255, 0.08)',
+                    border: 'none',
+                    color: isDirty ? '#ffffff' : '#64748b',
+                    borderRadius: '8px',
+                    cursor: isDirty ? 'pointer' : 'default',
+                    boxShadow: isDirty ? '0 4px 15px rgba(16, 185, 129, 0.35)' : 'none'
+                  }}
+                >
+                  <Save size={16} className={savingSheet ? 'spin' : ''} />
+                  <span>{savingSheet ? 'Saving...' : isDirty ? 'Save Marks' : 'Saved'}</span>
+                </button>
+              )}
+
+              {/* Submit Assessment Button (Teacher) */}
+              {marksSheetData.canEdit && marksSheetData.status === 'Running' && (
+                <button
+                  onClick={handleSubmitAssessment}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '0.45rem',
+                    fontSize: '0.82rem',
+                    fontWeight: 700,
+                    padding: '0.55rem 1rem',
+                    background: 'rgba(99, 102, 241, 0.15)',
+                    border: '1px solid rgba(99, 102, 241, 0.4)',
+                    color: '#a5b4fc',
+                    borderRadius: '8px',
                     cursor: 'pointer'
                   }}
                 >
-                  Close
+                  <Send size={15} />
+                  <span>Submit for Review</span>
                 </button>
+              )}
+
+              {/* Publish Results Button (Admin / Authority) */}
+              {isAuthority && marksSheetData.status !== 'Result Published' && (
+                <button
+                  onClick={handlePublishResults}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '0.45rem',
+                    fontSize: '0.82rem',
+                    fontWeight: 700,
+                    padding: '0.55rem 1rem',
+                    background: 'linear-gradient(135deg, #3b82f6, #1d4ed8)',
+                    border: 'none',
+                    color: '#ffffff',
+                    borderRadius: '8px',
+                    cursor: 'pointer'
+                  }}
+                >
+                  <CheckCircle2 size={16} />
+                  <span>Publish Results</span>
+                </button>
+              )}
+
+              {/* Reopen Locked Assessment (Admin / Authority) */}
+              {isAuthority && marksSheetData.isLocked && (
+                <button
+                  onClick={() => setIsReopenModalOpen(true)}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '0.45rem',
+                    fontSize: '0.82rem',
+                    fontWeight: 700,
+                    padding: '0.55rem 1rem',
+                    background: 'rgba(239, 68, 68, 0.15)',
+                    border: '1px solid rgba(239, 68, 68, 0.4)',
+                    color: '#f87171',
+                    borderRadius: '8px',
+                    cursor: 'pointer'
+                  }}
+                >
+                  <RotateCcw size={15} />
+                  <span>Reopen Assessment</span>
+                </button>
+              )}
+
+              {/* Audit Logs Button */}
+              <button
+                onClick={handleOpenAuditLogs}
+                style={{
+                  width: '36px',
+                  height: '36px',
+                  borderRadius: '8px',
+                  background: 'rgba(255, 255, 255, 0.06)',
+                  border: '1px solid rgba(255, 255, 255, 0.12)',
+                  color: '#cbd5e1',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  cursor: 'pointer'
+                }}
+                title="View Assessment Audit Logs"
+              >
+                <History size={16} />
+              </button>
+            </div>
+          </div>
+
+          {/* Sub-bar: Search, Filter & Final Max Marks configuration */}
+          <div className="no-print" style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            flexWrap: 'wrap',
+            gap: '1rem',
+            marginBottom: '1rem',
+            padding: '0.75rem 1rem',
+            background: 'rgba(15, 23, 42, 0.6)',
+            borderRadius: '12px',
+            border: '1px solid rgba(255, 255, 255, 0.06)'
+          }}>
+            <div style={{ position: 'relative', width: '260px' }}>
+              <Search size={15} style={{ position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)', color: '#64748b' }} />
+              <input
+                type="text"
+                placeholder="Search student roll or name..."
+                value={sheetSearchQuery}
+                onChange={(e) => setSheetSearchQuery(e.target.value)}
+                style={{
+                  width: '100%',
+                  padding: '0.45rem 0.65rem 0.45rem 2rem',
+                  background: 'rgba(30, 41, 59, 0.8)',
+                  border: '1px solid rgba(255, 255, 255, 0.1)',
+                  borderRadius: '8px',
+                  color: '#ffffff',
+                  fontSize: '0.8rem',
+                  outline: 'none'
+                }}
+              />
+            </div>
+
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+              {[
+                { id: 'ALL', label: `All (${localMatrix.length})` },
+                { id: 'COMPLETE', label: `Complete (${localMatrix.filter(m => m.isCAComplete).length})` },
+                { id: 'INCOMPLETE', label: `Incomplete (${localMatrix.filter(m => !m.isCAComplete).length})` },
+                { id: 'AT_RISK', label: 'At Risk (<40%)' }
+              ].map(f => (
+                <button
+                  key={f.id}
+                  onClick={() => setSheetStatusFilter(f.id)}
+                  style={{
+                    padding: '0.35rem 0.75rem',
+                    borderRadius: '6px',
+                    fontSize: '0.75rem',
+                    fontWeight: 600,
+                    border: 'none',
+                    cursor: 'pointer',
+                    background: sheetStatusFilter === f.id ? '#3b82f6' : 'rgba(255, 255, 255, 0.05)',
+                    color: sheetStatusFilter === f.id ? '#ffffff' : '#94a3b8'
+                  }}
+                >
+                  {f.label}
+                </button>
+              ))}
+            </div>
+
+            {/* Final Theory Max Marks Configuration */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.78rem', color: '#cbd5e1' }}>
+              <span>Final Theory Max:</span>
+              <input
+                type="number"
+                min="10"
+                max="100"
+                value={finalTheoryMaxMarks}
+                disabled={!marksSheetData.canEdit}
+                onChange={(e) => setFinalTheoryMaxMarks(parseFloat(e.target.value) || 70.0)}
+                style={{
+                  width: '60px',
+                  padding: '0.35rem',
+                  background: 'rgba(30, 41, 59, 0.8)',
+                  border: '1px solid rgba(255, 255, 255, 0.15)',
+                  borderRadius: '6px',
+                  color: '#ffffff',
+                  fontSize: '0.8rem',
+                  textAlign: 'center'
+                }}
+              />
+            </div>
+          </div>
+
+          {/* ===================================================================== */}
+          {/* SPREADSHEET TABLE: ON SCREEN & PRINT READY */}
+          {/* ===================================================================== */}
+          <div 
+            id="printable-assessment-sheet"
+            style={{
+              background: '#0f172a',
+              borderRadius: '14px',
+              border: '1px solid rgba(255, 255, 255, 0.08)',
+              overflow: 'hidden',
+              boxShadow: '0 8px 30px rgba(0, 0, 0, 0.3)'
+            }}
+          >
+            {/* PRINT-ONLY OFFICIAL HEADER BLOCK (Visible Only During Window Print) */}
+            <div 
+              className="print-only"
+              style={{
+                display: 'none',
+                padding: '1.25rem 1.5rem',
+                borderBottom: '2px solid #000000',
+                textAlign: 'center',
+                color: '#000000',
+                background: '#ffffff'
+              }}
+            >
+              <h2 style={{ fontSize: '1.35rem', fontWeight: 900, margin: '0 0 0.2rem', textTransform: 'uppercase', color: '#000000' }}>
+                Pabna University of Science & Technology
+              </h2>
+              <h3 style={{ fontSize: '1.05rem', fontWeight: 800, margin: '0 0 0.2rem', color: '#000000' }}>
+                Department of Computer Science & Engineering
+              </h3>
+              <h4 style={{ fontSize: '0.95rem', fontWeight: 700, margin: '0 0 0.5rem', color: '#333333' }}>
+                Official Academic Assessment & Continuous Evaluation Sheet
+              </h4>
+
+              <div style={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(4, 1fr)',
+                gap: '0.5rem',
+                fontSize: '0.78rem',
+                textAlign: 'left',
+                borderTop: '1px solid #cccccc',
+                paddingTop: '0.5rem',
+                color: '#000000'
+              }}>
+                <div><strong>Course Code:</strong> {selectedCourse.course_code}</div>
+                <div><strong>Course Title:</strong> {selectedCourse.course_title}</div>
+                <div><strong>Credit Hours:</strong> {selectedCourse.credit_hours} Cr ({selectedCourse.course_type})</div>
+                <div><strong>Session / Batch:</strong> {selectedCourse.session_name}</div>
+                <div><strong>Semester:</strong> {selectedCourse.semester_name}</div>
+                <div><strong>Course Teacher:</strong> {selectedCourse.assigned_teacher_name}</div>
+                <div><strong>Status:</strong> {marksSheetData.status}</div>
+                <div><strong>Printed Date:</strong> {new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' })}</div>
+              </div>
+            </div>
+
+            {/* Spreadsheet Table Container */}
+            <div style={{ overflowX: 'auto', width: '100%' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.82rem', textAlign: 'left' }}>
+                <thead>
+                  <tr style={{ background: 'rgba(30, 41, 59, 0.95)', borderBottom: '1px solid rgba(255, 255, 255, 0.12)', color: '#94a3b8' }}>
+                    <th style={{ padding: '0.75rem 0.85rem', width: '50px', textAlign: 'center' }}>#</th>
+                    <th style={{ padding: '0.75rem 0.85rem', minWidth: '130px' }}>Student Roll</th>
+                    <th style={{ padding: '0.75rem 0.85rem', minWidth: '180px' }}>Student Name</th>
+                    <th style={{ padding: '0.75rem 0.5rem', width: '85px', textAlign: 'center' }}>CT-1 (/10)</th>
+                    <th style={{ padding: '0.75rem 0.5rem', width: '85px', textAlign: 'center' }}>CT-2 (/10)</th>
+                    <th style={{ padding: '0.75rem 0.5rem', width: '85px', textAlign: 'center' }}>CT-3 (/10)</th>
+                    <th style={{ padding: '0.75rem 0.5rem', width: '85px', textAlign: 'center' }}>Att (/10)</th>
+                    <th style={{ padding: '0.75rem 0.75rem', width: '100px', textAlign: 'center', background: 'rgba(99, 102, 241, 0.12)', color: '#c7d2fe' }}>
+                      CA (/30)
+                    </th>
+                    <th style={{ padding: '0.75rem 0.65rem', width: '80px', textAlign: 'center' }}>CA Grade</th>
+                    <th style={{ padding: '0.75rem 0.65rem', width: '80px', textAlign: 'center' }}>CA Rank</th>
+                    <th style={{ padding: '0.75rem 0.5rem', width: '100px', textAlign: 'center', background: 'rgba(59, 130, 246, 0.1)', color: '#bfdbfe' }}>
+                      Final Theory (/{finalTheoryMaxMarks})
+                    </th>
+                    <th style={{ padding: '0.75rem 0.85rem', width: '100px', textAlign: 'center' }}>Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredMatrix.length === 0 ? (
+                    <tr>
+                      <td colSpan={12} style={{ padding: '3rem', textAlign: 'center', color: '#94a3b8' }}>
+                        No enrolled students match your search or filter criteria.
+                      </td>
+                    </tr>
+                  ) : (
+                    filteredMatrix.map((row, idx) => {
+                      const isComplete = Boolean(row.isCAComplete);
+                      const isAtRisk = row.caMarks !== null && row.caMarks < 12.0;
+
+                      return (
+                        <tr 
+                          key={row.studentId}
+                          style={{
+                            borderBottom: '1px solid rgba(255, 255, 255, 0.05)',
+                            background: idx % 2 === 0 ? 'rgba(15, 23, 42, 0.4)' : 'transparent',
+                            transition: 'background 0.1s ease'
+                          }}
+                        >
+                          {/* Row Index */}
+                          <td style={{ padding: '0.65rem 0.85rem', textAlign: 'center', color: '#64748b', fontSize: '0.75rem' }}>
+                            {idx + 1}
+                          </td>
+
+                          {/* Student Roll */}
+                          <td style={{ padding: '0.65rem 0.85rem', fontWeight: 700, color: '#f8fafc', whiteSpace: 'nowrap' }}>
+                            {row.studentRoll}
+                          </td>
+
+                          {/* Student Name */}
+                          <td style={{ padding: '0.65rem 0.85rem', color: '#cbd5e1', whiteSpace: 'nowrap' }}>
+                            {row.studentName}
+                          </td>
+
+                          {/* CT-1 Input */}
+                          <td style={{ padding: '0.45rem 0.35rem', textAlign: 'center' }}>
+                            <input
+                              id={`cell-${idx}-ct1`}
+                              type="number"
+                              step="0.5"
+                              min="0"
+                              max="10"
+                              disabled={!marksSheetData.canEdit}
+                              placeholder="—"
+                              value={row.ct1 !== null && row.ct1 !== undefined ? row.ct1 : ''}
+                              onChange={(e) => handleCellChange(row.studentId, 'ct1', e.target.value)}
+                              onKeyDown={(e) => handleKeyDown(e, idx, 'ct1')}
+                              style={{
+                                width: '65px',
+                                padding: '0.4rem',
+                                background: marksSheetData.canEdit ? 'rgba(30, 41, 59, 0.8)' : 'rgba(15, 23, 42, 0.5)',
+                                border: '1px solid rgba(255, 255, 255, 0.1)',
+                                borderRadius: '6px',
+                                color: '#ffffff',
+                                textAlign: 'center',
+                                fontSize: '0.82rem',
+                                outline: 'none'
+                              }}
+                            />
+                          </td>
+
+                          {/* CT-2 Input */}
+                          <td style={{ padding: '0.45rem 0.35rem', textAlign: 'center' }}>
+                            <input
+                              id={`cell-${idx}-ct2`}
+                              type="number"
+                              step="0.5"
+                              min="0"
+                              max="10"
+                              disabled={!marksSheetData.canEdit}
+                              placeholder="—"
+                              value={row.ct2 !== null && row.ct2 !== undefined ? row.ct2 : ''}
+                              onChange={(e) => handleCellChange(row.studentId, 'ct2', e.target.value)}
+                              onKeyDown={(e) => handleKeyDown(e, idx, 'ct2')}
+                              style={{
+                                width: '65px',
+                                padding: '0.4rem',
+                                background: marksSheetData.canEdit ? 'rgba(30, 41, 59, 0.8)' : 'rgba(15, 23, 42, 0.5)',
+                                border: '1px solid rgba(255, 255, 255, 0.1)',
+                                borderRadius: '6px',
+                                color: '#ffffff',
+                                textAlign: 'center',
+                                fontSize: '0.82rem',
+                                outline: 'none'
+                              }}
+                            />
+                          </td>
+
+                          {/* CT-3 Input */}
+                          <td style={{ padding: '0.45rem 0.35rem', textAlign: 'center' }}>
+                            <input
+                              id={`cell-${idx}-ct3`}
+                              type="number"
+                              step="0.5"
+                              min="0"
+                              max="10"
+                              disabled={!marksSheetData.canEdit}
+                              placeholder="—"
+                              value={row.ct3 !== null && row.ct3 !== undefined ? row.ct3 : ''}
+                              onChange={(e) => handleCellChange(row.studentId, 'ct3', e.target.value)}
+                              onKeyDown={(e) => handleKeyDown(e, idx, 'ct3')}
+                              style={{
+                                width: '65px',
+                                padding: '0.4rem',
+                                background: marksSheetData.canEdit ? 'rgba(30, 41, 59, 0.8)' : 'rgba(15, 23, 42, 0.5)',
+                                border: '1px solid rgba(255, 255, 255, 0.1)',
+                                borderRadius: '6px',
+                                color: '#ffffff',
+                                textAlign: 'center',
+                                fontSize: '0.82rem',
+                                outline: 'none'
+                              }}
+                            />
+                          </td>
+
+                          {/* Attendance Input */}
+                          <td style={{ padding: '0.45rem 0.35rem', textAlign: 'center' }}>
+                            <input
+                              id={`cell-${idx}-attendance`}
+                              type="number"
+                              step="0.5"
+                              min="0"
+                              max="10"
+                              disabled={!marksSheetData.canEdit}
+                              placeholder="—"
+                              value={row.attendance !== null && row.attendance !== undefined ? row.attendance : ''}
+                              onChange={(e) => handleCellChange(row.studentId, 'attendance', e.target.value)}
+                              onKeyDown={(e) => handleKeyDown(e, idx, 'attendance')}
+                              style={{
+                                width: '65px',
+                                padding: '0.4rem',
+                                background: marksSheetData.canEdit ? 'rgba(30, 41, 59, 0.8)' : 'rgba(15, 23, 42, 0.5)',
+                                border: '1px solid rgba(255, 255, 255, 0.1)',
+                                borderRadius: '6px',
+                                color: '#ffffff',
+                                textAlign: 'center',
+                                fontSize: '0.82rem',
+                                outline: 'none'
+                              }}
+                            />
+                          </td>
+
+                          {/* Computed CA Marks (/30) */}
+                          <td style={{
+                            padding: '0.65rem 0.75rem',
+                            textAlign: 'center',
+                            fontWeight: 800,
+                            background: 'rgba(99, 102, 241, 0.08)',
+                            color: isComplete ? '#a5b4fc' : '#64748b'
+                          }}>
+                            {isComplete ? (
+                              <span title={`Best 2: ${row.best2Total} + Att: ${row.attendance}`}>
+                                {row.caMarks}
+                              </span>
+                            ) : (
+                              <span style={{ fontSize: '0.72rem', color: '#f59e0b', fontStyle: 'italic' }}>
+                                Incomplete
+                              </span>
+                            )}
+                          </td>
+
+                          {/* CA Grade */}
+                          <td style={{ padding: '0.65rem 0.65rem', textAlign: 'center' }}>
+                            {row.caGrade === 'Incomplete' ? (
+                              <span style={{ fontSize: '0.7rem', color: '#f59e0b', fontWeight: 700 }}>
+                                Pending
+                              </span>
+                            ) : row.caGrade === '—' ? (
+                              <span style={{ color: '#64748b' }}>—</span>
+                            ) : (
+                              <span style={{
+                                fontWeight: 800,
+                                fontSize: '0.82rem',
+                                padding: '0.15rem 0.45rem',
+                                borderRadius: '6px',
+                                background: isAtRisk ? 'rgba(239, 68, 68, 0.2)' : 'rgba(16, 185, 129, 0.15)',
+                                color: isAtRisk ? '#f87171' : '#34d399'
+                              }}>
+                                {row.caGrade}
+                              </span>
+                            )}
+                          </td>
+
+                          {/* CA Rank */}
+                          <td style={{ padding: '0.65rem 0.65rem', textAlign: 'center', fontWeight: 700, color: row.caRank ? '#f59e0b' : '#64748b' }}>
+                            {formatOrdinal(row.caRank)}
+                          </td>
+
+                          {/* Final Theory Marks Input */}
+                          <td style={{ padding: '0.45rem 0.35rem', textAlign: 'center', background: 'rgba(59, 130, 246, 0.05)' }}>
+                            <input
+                              id={`cell-${idx}-finalTheory`}
+                              type="number"
+                              step="0.5"
+                              min="0"
+                              max={finalTheoryMaxMarks}
+                              disabled={!marksSheetData.canEdit}
+                              placeholder="—"
+                              value={row.finalTheory !== null && row.finalTheory !== undefined ? row.finalTheory : ''}
+                              onChange={(e) => handleCellChange(row.studentId, 'finalTheory', e.target.value)}
+                              onKeyDown={(e) => handleKeyDown(e, idx, 'finalTheory')}
+                              style={{
+                                width: '75px',
+                                padding: '0.4rem',
+                                background: marksSheetData.canEdit ? 'rgba(30, 41, 59, 0.8)' : 'rgba(15, 23, 42, 0.5)',
+                                border: '1px solid rgba(255, 255, 255, 0.1)',
+                                borderRadius: '6px',
+                                color: '#ffffff',
+                                textAlign: 'center',
+                                fontSize: '0.82rem',
+                                outline: 'none'
+                              }}
+                            />
+                          </td>
+
+                          {/* Status */}
+                          <td style={{ padding: '0.65rem 0.85rem', textAlign: 'center' }}>
+                            <span style={{
+                              fontSize: '0.68rem',
+                              fontWeight: 700,
+                              padding: '0.15rem 0.45rem',
+                              borderRadius: '6px',
+                              background: marksSheetData.isLocked ? 'rgba(100, 116, 139, 0.2)' : 'rgba(16, 185, 129, 0.15)',
+                              color: marksSheetData.isLocked ? '#94a3b8' : '#34d399'
+                            }}>
+                              {marksSheetData.status}
+                            </span>
+                          </td>
+                        </tr>
+                      );
+                    })
+                  )}
+                </tbody>
+              </table>
+            </div>
+
+            {/* PRINT-ONLY SIGNATURE BLOCK (Requirement 13) */}
+            <div
+              className="print-only"
+              style={{
+                display: 'none',
+                marginTop: '3.5rem',
+                padding: '2rem 3rem 1rem',
+                color: '#000000',
+                background: '#ffffff'
+              }}
+            >
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end' }}>
+                <div style={{ textAlign: 'center', width: '240px' }}>
+                  <div style={{ borderTop: '1px solid #000000', paddingTop: '0.4rem', fontWeight: 700, fontSize: '0.82rem' }}>
+                    Signature of Course Teacher
+                  </div>
+                  <div style={{ fontSize: '0.75rem', color: '#444444' }}>
+                    {selectedCourse.assigned_teacher_name}
+                  </div>
+                  <div style={{ fontSize: '0.7rem', color: '#666666' }}>
+                    {selectedCourse.assigned_teacher_designation || 'Faculty Member'}, Dept of CSE
+                  </div>
+                </div>
+
+                <div style={{ textAlign: 'center', width: '240px' }}>
+                  <div style={{ borderTop: '1px solid #000000', paddingTop: '0.4rem', fontWeight: 700, fontSize: '0.82rem' }}>
+                    Chairman, Department of CSE
+                  </div>
+                  <div style={{ fontSize: '0.75rem', color: '#444444' }}>
+                    Dr. Md. Abdur Rahim
+                  </div>
+                  <div style={{ fontSize: '0.7rem', color: '#666666' }}>
+                    Pabna University of Science & Technology
+                  </div>
+                </div>
               </div>
             </div>
           </div>
         </div>
       )}
 
-      {/* 4. NEW ACADEMIC SESSION / START CLASS DATE MODAL */}
-      {isNewSessionModalOpen && (
-        <div style={{
-          position: 'fixed',
-          top: 0,
-          left: 0,
-          right: 0,
-          bottom: 0,
-          background: 'rgba(5, 10, 20, 0.85)',
-          backdropFilter: 'blur(8px)',
-          zIndex: 1100,
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          padding: '1.5rem'
-        }}>
-          <div style={{
-            background: '#0f172a',
-            border: '1px solid #1e293b',
-            borderRadius: '16px',
-            width: '100%',
-            maxWidth: '520px',
-            padding: '1.75rem',
-            boxShadow: '0 25px 60px rgba(0, 0, 0, 0.65)'
-          }}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1.25rem' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
-                <Calendar size={20} style={{ color: '#3b82f6' }} />
-                <h3 style={{ fontSize: '1.2rem', fontWeight: 800, margin: 0, color: '#ffffff' }}>
-                  Add Session / Start Class Date
-                </h3>
-              </div>
+      {/* ========================================================================= */}
+      {/* 4. MODALS */}
+      {/* ========================================================================= */}
 
+      {/* Create Semester Modal (Requirement 2) */}
+      {isCreateSemesterModalOpen && (
+        <div 
+          className="modal-overlay" 
+          onClick={() => setIsCreateSemesterModalOpen(false)}
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(0, 0, 0, 0.75)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 1000,
+            padding: '1rem'
+          }}
+        >
+          <div 
+            className="modal-content"
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              width: '100%',
+              maxWidth: '540px',
+              background: '#0f172a',
+              borderRadius: '16px',
+              border: '1px solid rgba(255, 255, 255, 0.12)',
+              boxShadow: '0 20px 40px rgba(0, 0, 0, 0.5)',
+              color: '#ffffff',
+              overflow: 'hidden'
+            }}
+          >
+            {/* Modal Header */}
+            <div style={{
+              padding: '1.25rem 1.5rem',
+              borderBottom: '1px solid rgba(255, 255, 255, 0.08)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              background: 'linear-gradient(135deg, #1e293b, #0f172a)'
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem' }}>
+                <PlusCircle size={20} style={{ color: '#6366f1' }} />
+                <h3 style={{ margin: 0, fontSize: '1.15rem', fontWeight: 800 }}>Create New Semester</h3>
+              </div>
               <button
-                onClick={() => setIsNewSessionModalOpen(false)}
-                style={{
-                  background: 'none',
-                  border: 'none',
-                  color: '#94a3b8',
-                  cursor: 'pointer'
-                }}
+                onClick={() => setIsCreateSemesterModalOpen(false)}
+                style={{ background: 'transparent', border: 'none', color: '#94a3b8', cursor: 'pointer' }}
               >
-                <X size={18} />
+                <X size={20} />
               </button>
             </div>
 
-            <p style={{ fontSize: '0.825rem', color: '#94a3b8', margin: '0 0 1.25rem 0', lineHeight: 1.4 }}>
-              When a session is created or a start class date is scheduled, the system automatically populates all 8 standard CSE semesters, curriculum courses, and assigned faculty!
-            </p>
-
-            <form onSubmit={handleCreateNewSession} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+            {/* Modal Form */}
+            <form onSubmit={handleCreateSemesterSubmit} style={{ padding: '1.5rem', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+              
+              {/* Session / Batch */}
               <div>
-                <label style={{ display: 'block', fontSize: '0.775rem', fontWeight: 700, color: '#cbd5e1', marginBottom: '0.4rem' }}>
-                  Session Name (e.g. Session 2025-2026) *
+                <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 700, color: '#cbd5e1', marginBottom: '0.35rem' }}>
+                  Academic Session / Batch *
                 </label>
-                <input
-                  type="text"
+                <select
                   required
-                  placeholder="e.g. Session 2025-2026"
-                  value={newSessionForm.sessionName}
-                  onChange={e => setNewSessionForm(prev => ({ ...prev, sessionName: e.target.value }))}
+                  value={createSemesterForm.sessionId}
+                  onChange={(e) => setCreateSemesterForm({ ...createSemesterForm, sessionId: e.target.value })}
                   style={{
                     width: '100%',
-                    padding: '0.65rem 0.85rem',
-                    background: 'rgba(30, 41, 59, 0.6)',
-                    border: '1px solid #334155',
+                    padding: '0.6rem 0.8rem',
+                    background: '#1e293b',
+                    border: '1px solid rgba(255, 255, 255, 0.12)',
                     borderRadius: '8px',
                     color: '#ffffff',
-                    fontSize: '0.85rem',
-                    outline: 'none'
+                    fontSize: '0.85rem'
                   }}
-                />
+                >
+                  <option value="">Select an Academic Session</option>
+                  {sessions.map(s => (
+                    <option key={s.id} value={s.id}>
+                      {s.session_name} {s.is_current ? '(Current Batch)' : ''}
+                    </option>
+                  ))}
+                </select>
               </div>
 
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.85rem' }}>
+              {/* Year & Semester Grid */}
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
                 <div>
-                  <label style={{ display: 'block', fontSize: '0.775rem', fontWeight: 700, color: '#cbd5e1', marginBottom: '0.4rem' }}>
-                    Start Class Date *
+                  <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 700, color: '#cbd5e1', marginBottom: '0.35rem' }}>
+                    Year (1-4) *
+                  </label>
+                  <select
+                    value={createSemesterForm.year}
+                    onChange={(e) => setCreateSemesterForm({ ...createSemesterForm, year: e.target.value })}
+                    style={{
+                      width: '100%',
+                      padding: '0.6rem 0.8rem',
+                      background: '#1e293b',
+                      border: '1px solid rgba(255, 255, 255, 0.12)',
+                      borderRadius: '8px',
+                      color: '#ffffff',
+                      fontSize: '0.85rem'
+                    }}
+                  >
+                    <option value="1">1st Year</option>
+                    <option value="2">2nd Year</option>
+                    <option value="3">3rd Year</option>
+                    <option value="4">4th Year</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 700, color: '#cbd5e1', marginBottom: '0.35rem' }}>
+                    Semester (1-2) *
+                  </label>
+                  <select
+                    value={createSemesterForm.semester}
+                    onChange={(e) => setCreateSemesterForm({ ...createSemesterForm, semester: e.target.value })}
+                    style={{
+                      width: '100%',
+                      padding: '0.6rem 0.8rem',
+                      background: '#1e293b',
+                      border: '1px solid rgba(255, 255, 255, 0.12)',
+                      borderRadius: '8px',
+                      color: '#ffffff',
+                      fontSize: '0.85rem'
+                    }}
+                  >
+                    <option value="1">1st Semester</option>
+                    <option value="2">2nd Semester</option>
+                  </select>
+                </div>
+              </div>
+
+              {/* Dates Grid */}
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+                <div>
+                  <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 700, color: '#cbd5e1', marginBottom: '0.35rem' }}>
+                    Semester Start Date *
                   </label>
                   <input
                     type="date"
                     required
-                    value={newSessionForm.startDate}
-                    onChange={e => setNewSessionForm(prev => ({ ...prev, startDate: e.target.value }))}
+                    value={createSemesterForm.startDate}
+                    onChange={(e) => setCreateSemesterForm({ ...createSemesterForm, startDate: e.target.value })}
                     style={{
                       width: '100%',
-                      padding: '0.6rem 0.75rem',
-                      background: 'rgba(30, 41, 59, 0.6)',
-                      border: '1px solid #334155',
+                      padding: '0.6rem 0.8rem',
+                      background: '#1e293b',
+                      border: '1px solid rgba(255, 255, 255, 0.12)',
                       borderRadius: '8px',
                       color: '#ffffff',
                       fontSize: '0.85rem'
@@ -1753,18 +2255,18 @@ export function ContinuousAssessmentView({ user, onBackToDashboard }) {
                 </div>
 
                 <div>
-                  <label style={{ display: 'block', fontSize: '0.775rem', fontWeight: 700, color: '#cbd5e1', marginBottom: '0.4rem' }}>
-                    End Class Date (Optional)
+                  <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 700, color: '#cbd5e1', marginBottom: '0.35rem' }}>
+                    Class Ending Date
                   </label>
                   <input
                     type="date"
-                    value={newSessionForm.endDate}
-                    onChange={e => setNewSessionForm(prev => ({ ...prev, endDate: e.target.value }))}
+                    value={createSemesterForm.classEndDate}
+                    onChange={(e) => setCreateSemesterForm({ ...createSemesterForm, classEndDate: e.target.value })}
                     style={{
                       width: '100%',
-                      padding: '0.6rem 0.75rem',
-                      background: 'rgba(30, 41, 59, 0.6)',
-                      border: '1px solid #334155',
+                      padding: '0.6rem 0.8rem',
+                      background: '#1e293b',
+                      border: '1px solid rgba(255, 255, 255, 0.12)',
                       borderRadius: '8px',
                       color: '#ffffff',
                       fontSize: '0.85rem'
@@ -1773,63 +2275,390 @@ export function ContinuousAssessmentView({ user, onBackToDashboard }) {
                 </div>
               </div>
 
-              <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem', marginTop: '0.35rem' }}>
-                <input
-                  type="checkbox"
-                  id="setAsCurrentCheck"
-                  checked={newSessionForm.isCurrent}
-                  onChange={e => setNewSessionForm(prev => ({ ...prev, isCurrent: e.target.checked }))}
-                  style={{ width: '16px', height: '16px', cursor: 'pointer' }}
-                />
-                <label htmlFor="setAsCurrentCheck" style={{ fontSize: '0.825rem', color: '#cbd5e1', cursor: 'pointer', fontWeight: 600 }}>
-                  Set as Current Active Academic Session
-                </label>
+              {/* Assessment Deadline & Initial Status */}
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+                <div>
+                  <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 700, color: '#cbd5e1', marginBottom: '0.35rem' }}>
+                    Assessment Deadline
+                  </label>
+                  <input
+                    type="date"
+                    value={createSemesterForm.assessmentDeadline}
+                    onChange={(e) => setCreateSemesterForm({ ...createSemesterForm, assessmentDeadline: e.target.value })}
+                    style={{
+                      width: '100%',
+                      padding: '0.6rem 0.8rem',
+                      background: '#1e293b',
+                      border: '1px solid rgba(255, 255, 255, 0.12)',
+                      borderRadius: '8px',
+                      color: '#ffffff',
+                      fontSize: '0.85rem'
+                    }}
+                  />
+                </div>
+
+                <div>
+                  <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 700, color: '#cbd5e1', marginBottom: '0.35rem' }}>
+                    Semester Status *
+                  </label>
+                  <select
+                    value={createSemesterForm.status}
+                    onChange={(e) => setCreateSemesterForm({ ...createSemesterForm, status: e.target.value })}
+                    style={{
+                      width: '100%',
+                      padding: '0.6rem 0.8rem',
+                      background: '#1e293b',
+                      border: '1px solid rgba(255, 255, 255, 0.12)',
+                      borderRadius: '8px',
+                      color: '#ffffff',
+                      fontSize: '0.85rem'
+                    }}
+                  >
+                    <option value="Upcoming">Upcoming</option>
+                    <option value="Running">Running (Active)</option>
+                    <option value="Assessment Submission">Assessment Submission</option>
+                    <option value="Finalized">Finalized</option>
+                    <option value="Result Published">Result Published</option>
+                    <option value="Archived">Archived</option>
+                  </select>
+                </div>
               </div>
 
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: '0.75rem', marginTop: '1rem' }}>
+              {/* Optional Notes */}
+              <div>
+                <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 700, color: '#cbd5e1', marginBottom: '0.35rem' }}>
+                  Optional Academic Notes
+                </label>
+                <textarea
+                  rows="2"
+                  placeholder="Notes, evaluation deadlines or specific semester instructions..."
+                  value={createSemesterForm.notes}
+                  onChange={(e) => setCreateSemesterForm({ ...createSemesterForm, notes: e.target.value })}
+                  style={{
+                    width: '100%',
+                    padding: '0.6rem 0.8rem',
+                    background: '#1e293b',
+                    border: '1px solid rgba(255, 255, 255, 0.12)',
+                    borderRadius: '8px',
+                    color: '#ffffff',
+                    fontSize: '0.85rem',
+                    resize: 'vertical'
+                  }}
+                />
+              </div>
+
+              {/* Action Buttons */}
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: '0.75rem', marginTop: '0.5rem' }}>
                 <button
                   type="button"
-                  onClick={() => setIsNewSessionModalOpen(false)}
+                  onClick={() => setIsCreateSemesterModalOpen(false)}
                   style={{
-                    background: 'rgba(30, 41, 59, 0.8)',
-                    border: '1px solid #334155',
-                    color: '#cbd5e1',
-                    padding: '0.55rem 1rem',
+                    padding: '0.6rem 1rem',
+                    background: 'rgba(255, 255, 255, 0.08)',
+                    border: 'none',
                     borderRadius: '8px',
-                    fontSize: '0.825rem',
-                    fontWeight: 700,
+                    color: '#cbd5e1',
+                    fontSize: '0.85rem',
                     cursor: 'pointer'
                   }}
                 >
                   Cancel
                 </button>
-
                 <button
                   type="submit"
-                  disabled={creatingSession}
+                  disabled={submittingSemester}
                   style={{
-                    background: 'linear-gradient(135deg, #2563eb, #3b82f6)',
-                    color: '#ffffff',
+                    padding: '0.6rem 1.25rem',
+                    background: 'linear-gradient(135deg, #6366f1, #3b82f6)',
                     border: 'none',
-                    padding: '0.55rem 1.25rem',
                     borderRadius: '8px',
-                    fontSize: '0.825rem',
-                    fontWeight: 800,
-                    cursor: creatingSession ? 'default' : 'pointer',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '0.4rem',
-                    boxShadow: '0 4px 12px rgba(37, 99, 235, 0.35)'
+                    color: '#ffffff',
+                    fontSize: '0.85rem',
+                    fontWeight: 700,
+                    cursor: 'pointer'
                   }}
                 >
-                  <Plus size={15} />
-                  <span>{creatingSession ? 'Creating...' : 'Create & Auto-Populate'}</span>
+                  {submittingSemester ? 'Saving...' : 'Create & Populate Courses'}
                 </button>
               </div>
             </form>
           </div>
         </div>
       )}
+
+      {/* Create Session Modal */}
+      {isCreateSessionModalOpen && (
+        <div 
+          className="modal-overlay" 
+          onClick={() => setIsCreateSessionModalOpen(false)}
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(0, 0, 0, 0.75)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 1000,
+            padding: '1rem'
+          }}
+        >
+          <div 
+            className="modal-content"
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              width: '100%',
+              maxWidth: '460px',
+              background: '#0f172a',
+              borderRadius: '16px',
+              border: '1px solid rgba(255, 255, 255, 0.12)',
+              boxShadow: '0 20px 40px rgba(0, 0, 0, 0.5)',
+              color: '#ffffff',
+              overflow: 'hidden'
+            }}
+          >
+            <div style={{
+              padding: '1.25rem 1.5rem',
+              borderBottom: '1px solid rgba(255, 255, 255, 0.08)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              background: 'linear-gradient(135deg, #1e293b, #0f172a)'
+            }}>
+              <h3 style={{ margin: 0, fontSize: '1.15rem', fontWeight: 800 }}>Start New Academic Session</h3>
+              <button onClick={() => setIsCreateSessionModalOpen(false)} style={{ background: 'transparent', border: 'none', color: '#94a3b8', cursor: 'pointer' }}>
+                <X size={20} />
+              </button>
+            </div>
+
+            <form onSubmit={handleCreateSessionSubmit} style={{ padding: '1.5rem', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+              <div>
+                <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 700, color: '#cbd5e1', marginBottom: '0.35rem' }}>
+                  Session Name (e.g. Session 2026-2027) *
+                </label>
+                <input
+                  type="text"
+                  required
+                  placeholder="Session 2026-2027"
+                  value={createSessionForm.sessionName}
+                  onChange={(e) => setCreateSessionForm({ ...createSessionForm, sessionName: e.target.value })}
+                  style={{ width: '100%', padding: '0.6rem 0.8rem', background: '#1e293b', border: '1px solid rgba(255, 255, 255, 0.12)', borderRadius: '8px', color: '#ffffff', fontSize: '0.85rem' }}
+                />
+              </div>
+
+              <div>
+                <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 700, color: '#cbd5e1', marginBottom: '0.35rem' }}>
+                  Session Start Date *
+                </label>
+                <input
+                  type="date"
+                  required
+                  value={createSessionForm.startDate}
+                  onChange={(e) => setCreateSessionForm({ ...createSessionForm, startDate: e.target.value })}
+                  style={{ width: '100%', padding: '0.6rem 0.8rem', background: '#1e293b', border: '1px solid rgba(255, 255, 255, 0.12)', borderRadius: '8px', color: '#ffffff', fontSize: '0.85rem' }}
+                />
+              </div>
+
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginTop: '0.25rem' }}>
+                <input
+                  type="checkbox"
+                  id="chkCurrent"
+                  checked={createSessionForm.isCurrent}
+                  onChange={(e) => setCreateSessionForm({ ...createSessionForm, isCurrent: e.target.checked })}
+                />
+                <label htmlFor="chkCurrent" style={{ fontSize: '0.85rem', color: '#cbd5e1', cursor: 'pointer' }}>
+                  Set as Current Department Academic Session
+                </label>
+              </div>
+
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: '0.75rem', marginTop: '0.5rem' }}>
+                <button type="button" onClick={() => setIsCreateSessionModalOpen(false)} style={{ padding: '0.6rem 1rem', background: 'rgba(255, 255, 255, 0.08)', border: 'none', borderRadius: '8px', color: '#cbd5e1', fontSize: '0.85rem', cursor: 'pointer' }}>Cancel</button>
+                <button type="submit" disabled={submittingSession} style={{ padding: '0.6rem 1.25rem', background: '#ec4899', border: 'none', borderRadius: '8px', color: '#ffffff', fontSize: '0.85rem', fontWeight: 700, cursor: 'pointer' }}>{submittingSession ? 'Initializing...' : 'Initialize Session'}</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Reopen Assessment Modal */}
+      {isReopenModalOpen && (
+        <div 
+          className="modal-overlay" 
+          onClick={() => setIsReopenModalOpen(false)}
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(0, 0, 0, 0.75)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 1000,
+            padding: '1rem'
+          }}
+        >
+          <div 
+            className="modal-content"
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              width: '100%',
+              maxWidth: '480px',
+              background: '#0f172a',
+              borderRadius: '16px',
+              border: '1px solid rgba(239, 68, 68, 0.3)',
+              boxShadow: '0 20px 40px rgba(0, 0, 0, 0.5)',
+              color: '#ffffff',
+              overflow: 'hidden'
+            }}
+          >
+            <div style={{
+              padding: '1.25rem 1.5rem',
+              borderBottom: '1px solid rgba(255, 255, 255, 0.08)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              background: 'linear-gradient(135deg, rgba(239, 68, 68, 0.2), #0f172a)'
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem', color: '#f87171' }}>
+                <RotateCcw size={18} />
+                <h3 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 800 }}>Authorized Reopening</h3>
+              </div>
+              <button onClick={() => setIsReopenModalOpen(false)} style={{ background: 'transparent', border: 'none', color: '#94a3b8', cursor: 'pointer' }}>
+                <X size={20} />
+              </button>
+            </div>
+
+            <form onSubmit={handleReopenAssessment} style={{ padding: '1.5rem', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+              <p style={{ margin: 0, fontSize: '0.82rem', color: '#cbd5e1', lineHeight: 1.5 }}>
+                You are about to reopen assessment for <strong style={{ color: '#ffffff' }}>{selectedCourse?.course_code}</strong>. 
+                According to university compliance, reopening a locked assessment requires an explicit reason and is recorded in the permanent audit trail.
+              </p>
+
+              <div>
+                <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 700, color: '#cbd5e1', marginBottom: '0.35rem' }}>
+                  Administrative Reason *
+                </label>
+                <textarea
+                  required
+                  rows="3"
+                  placeholder="State the reason for reopening (e.g. mark revision following student grievance resolution)..."
+                  value={reopenReason}
+                  onChange={(e) => setReopenReason(e.target.value)}
+                  style={{
+                    width: '100%',
+                    padding: '0.65rem',
+                    background: '#1e293b',
+                    border: '1px solid rgba(255, 255, 255, 0.15)',
+                    borderRadius: '8px',
+                    color: '#ffffff',
+                    fontSize: '0.85rem'
+                  }}
+                />
+              </div>
+
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: '0.75rem', marginTop: '0.5rem' }}>
+                <button type="button" onClick={() => setIsReopenModalOpen(false)} style={{ padding: '0.6rem 1rem', background: 'rgba(255, 255, 255, 0.08)', border: 'none', borderRadius: '8px', color: '#cbd5e1', fontSize: '0.85rem', cursor: 'pointer' }}>Cancel</button>
+                <button type="submit" disabled={submittingReopen} style={{ padding: '0.6rem 1.25rem', background: '#ef4444', border: 'none', borderRadius: '8px', color: '#ffffff', fontSize: '0.85rem', fontWeight: 700, cursor: 'pointer' }}>
+                  {submittingReopen ? 'Reopening...' : 'Confirm Reopen'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Audit Logs Modal */}
+      {isAuditLogsModalOpen && (
+        <div 
+          className="modal-overlay" 
+          onClick={() => setIsAuditLogsModalOpen(false)}
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(0, 0, 0, 0.75)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 1000,
+            padding: '1rem'
+          }}
+        >
+          <div 
+            className="modal-content"
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              width: '100%',
+              maxWidth: '560px',
+              background: '#0f172a',
+              borderRadius: '16px',
+              border: '1px solid rgba(255, 255, 255, 0.12)',
+              boxShadow: '0 20px 40px rgba(0, 0, 0, 0.5)',
+              color: '#ffffff',
+              overflow: 'hidden'
+            }}
+          >
+            <div style={{
+              padding: '1.25rem 1.5rem',
+              borderBottom: '1px solid rgba(255, 255, 255, 0.08)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              background: 'linear-gradient(135deg, #1e293b, #0f172a)'
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem' }}>
+                <History size={18} style={{ color: '#818cf8' }} />
+                <h3 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 800 }}>Assessment Audit Trail</h3>
+              </div>
+              <button onClick={() => setIsAuditLogsModalOpen(false)} style={{ background: 'transparent', border: 'none', color: '#94a3b8', cursor: 'pointer' }}>
+                <X size={20} />
+              </button>
+            </div>
+
+            <div style={{ padding: '1.25rem 1.5rem', maxHeight: '420px', overflowY: 'auto' }}>
+              {loadingAuditLogs ? (
+                <div style={{ textAlign: 'center', padding: '2rem', color: '#94a3b8' }}>
+                  <RefreshCw size={24} className="spin" style={{ margin: '0 auto 0.5rem' }} />
+                  <p style={{ fontSize: '0.82rem' }}>Loading audit logs...</p>
+                </div>
+              ) : auditLogs.length === 0 ? (
+                <div style={{ textAlign: 'center', padding: '2rem', color: '#94a3b8' }}>
+                  <Clock size={32} style={{ margin: '0 auto 0.5rem', color: '#64748b' }} />
+                  <p style={{ fontSize: '0.85rem' }}>No audit history records recorded for this course yet.</p>
+                </div>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem' }}>
+                  {auditLogs.map((log, i) => (
+                    <div 
+                      key={log.id || i}
+                      style={{
+                        padding: '0.85rem',
+                        background: 'rgba(30, 41, 59, 0.6)',
+                        borderRadius: '10px',
+                        border: '1px solid rgba(255, 255, 255, 0.06)'
+                      }}
+                    >
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.25rem' }}>
+                        <span style={{ fontSize: '0.78rem', fontWeight: 800, color: '#818cf8' }}>
+                          {log.action}
+                        </span>
+                        <span style={{ fontSize: '0.7rem', color: '#94a3b8' }}>
+                          {new Date(log.created_at).toLocaleString()}
+                        </span>
+                      </div>
+                      <div style={{ fontSize: '0.82rem', color: '#f1f5f9', fontWeight: 600 }}>
+                        {log.reason}
+                      </div>
+                      <div style={{ fontSize: '0.72rem', color: '#94a3b8', marginTop: '0.2rem' }}>
+                        By: {log.performed_by_name || 'System Authority'} ({log.previous_status || '—'} → {log.new_status})
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
+
+export default ContinuousAssessmentView;

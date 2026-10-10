@@ -339,7 +339,7 @@ export const CollapsibleSidebar = ({
                 }}
               >
                 <Award size={16} style={{ color: activeNavTab === 'continuous-assessment' ? '#f472b6' : '#f9a8d4' }} />
-                <span>Continuous Assessment</span>
+                <span>Regular Assessment</span>
                 <span style={{
                   marginLeft: 'auto',
                   fontSize: '0.65rem',
