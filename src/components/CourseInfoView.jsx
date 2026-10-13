@@ -17,8 +17,12 @@ import {
   GraduationCap,
   Award,
   ChevronDown,
-  Info
+  Info,
+  FileText,
+  Pencil,
+  Trash2
 } from 'lucide-react';
+import CourseOutlineModal from './course/CourseOutlineModal';
 
 export function CourseInfoView({ user, onBackToDashboard }) {
   const [curriculumData, setCurriculumData] = useState({ semesters: [], total_courses: 0, total_credits: 0 });
@@ -36,6 +40,10 @@ export function CourseInfoView({ user, onBackToDashboard }) {
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [addFeedback, setAddFeedback] = useState(null);
   const [submittingCourse, setSubmittingCourse] = useState(false);
+  const [outlineSelection, setOutlineSelection] = useState(null);
+  const [deleteTarget, setDeleteTarget] = useState(null);
+  const [deleteFeedback, setDeleteFeedback] = useState(null);
+  const [deletingCourse, setDeletingCourse] = useState(false);
   const [courseForm, setCourseForm] = useState({
     semesterId: '',
     courseCode: '',
@@ -159,6 +167,52 @@ export function CourseInfoView({ user, onBackToDashboard }) {
     }
   };
 
+  const handleSaveCourseOutline = async (outlinePayload) => {
+    if (!outlineSelection?.course?.id) return;
+    const token = localStorage.getItem('cse_token') || localStorage.getItem('token');
+    const res = await fetch(`/api/academic/courses/${outlineSelection.course.id}`, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`
+      },
+      body: JSON.stringify(outlinePayload)
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Failed to save course content.');
+
+    await fetchCurriculum();
+    setOutlineSelection(null);
+  };
+
+  const handleDeleteCourse = async () => {
+    if (!deleteTarget?.id) return;
+    setDeletingCourse(true);
+    setDeleteFeedback(null);
+    const token = localStorage.getItem('cse_token') || localStorage.getItem('token');
+
+    try {
+      const res = await fetch(`/api/academic/courses/${deleteTarget.id}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        const dependencyText = data.dependencies?.length
+          ? ` Linked records: ${data.dependencies.map((item) => `${item.count} ${item.label}${item.count === 1 ? '' : 's'}`).join(', ')}.`
+          : '';
+        throw new Error((data.error || 'Failed to remove course.') + dependencyText);
+      }
+
+      await fetchCurriculum();
+      setDeleteTarget(null);
+    } catch (err) {
+      setDeleteFeedback(err.message);
+    } finally {
+      setDeletingCourse(false);
+    }
+  };
+
   // Filtered Semesters and Courses
   const filteredSemesters = useMemo(() => {
     const list = curriculumData.semesters || [];
@@ -171,7 +225,11 @@ export function CourseInfoView({ user, onBackToDashboard }) {
           const matchQuery = !q || 
             (c.course_code && c.course_code.toLowerCase().includes(q)) ||
             (c.course_title && c.course_title.toLowerCase().includes(q)) ||
-            (c.syllabus_outline && c.syllabus_outline.toLowerCase().includes(q));
+            (c.syllabus_outline && c.syllabus_outline.toLowerCase().includes(q)) ||
+            (c.outline_entries || []).some((entry) =>
+              String(entry.topic || '').toLowerCase().includes(q) ||
+              String(entry.co_code || entry.coCode || '').toLowerCase().includes(q)
+            );
 
           // Type filter check
           let matchType = true;
@@ -621,6 +679,12 @@ export function CourseInfoView({ user, onBackToDashboard }) {
                   const isSessional = c.course_type === 'Sessional' || c.course_type === 'LAB';
                   const isViva = c.course_type === 'Viva';
                   const isElective = c.is_optional === 1 || !!c.elective_group;
+                  const outlineEntries = Array.isArray(c.outline_entries) ? c.outline_entries : [];
+                  const outlineTotals = outlineEntries.reduce((total, entry) => ({
+                    theory: total.theory + Number(entry.theory_contact_hours ?? entry.theoryContactHours ?? 0),
+                    lab: total.lab + Number(entry.lab_contact_hours ?? entry.labContactHours ?? 0)
+                  }), { theory: 0, lab: 0 });
+                  const isCustomCourse = Number(c.is_custom) === 1;
 
                   return (
                     <div
@@ -737,6 +801,72 @@ export function CourseInfoView({ user, onBackToDashboard }) {
                           Syllabus Specification:
                         </div>
                         {c.syllabus_outline || 'Comprehensive course syllabus outline, laboratory benchmarks, and evaluation criteria.'}
+                      </div>
+
+                      {/* Structured Course Content */}
+                      <div style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        gap: '0.55rem',
+                        flexWrap: 'wrap'
+                      }}>
+                        <span style={{
+                          fontSize: '0.72rem',
+                          fontWeight: 700,
+                          color: outlineEntries.length ? '#047857' : '#64748b',
+                          background: outlineEntries.length ? '#ecfdf5' : '#f1f5f9',
+                          border: `1px solid ${outlineEntries.length ? '#a7f3d0' : '#e2e8f0'}`,
+                          borderRadius: '999px',
+                          padding: '0.28rem 0.5rem'
+                        }}>
+                          {outlineEntries.length
+                            ? `${outlineEntries.length} CO item${outlineEntries.length === 1 ? '' : 's'} · ${outlineTotals.theory}T / ${outlineTotals.lab}L hrs`
+                            : 'Course content not added'}
+                        </span>
+                        <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap' }}>
+                          <button
+                            type="button"
+                            onClick={() => setOutlineSelection({ course: c, semesterName: sem.semester_name })}
+                            style={{
+                              background: isFacultyOrAdmin ? '#eff6ff' : '#ffffff',
+                              color: '#1d4ed8',
+                              border: '1px solid #bfdbfe',
+                              padding: '0.38rem 0.58rem',
+                              borderRadius: '7px',
+                              fontSize: '0.72rem',
+                              fontWeight: 800,
+                              cursor: 'pointer',
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: '0.3rem'
+                            }}
+                          >
+                            {isFacultyOrAdmin ? <Pencil size={13} /> : <FileText size={13} />}
+                            {isFacultyOrAdmin ? 'Edit Content' : 'View Content'}
+                          </button>
+                          {isFacultyOrAdmin && isCustomCourse && (
+                            <button
+                              type="button"
+                              onClick={() => { setDeleteTarget(c); setDeleteFeedback(null); }}
+                              style={{
+                                background: '#fef2f2',
+                                color: '#dc2626',
+                                border: '1px solid #fecaca',
+                                padding: '0.38rem 0.5rem',
+                                borderRadius: '7px',
+                                fontSize: '0.72rem',
+                                fontWeight: 800,
+                                cursor: 'pointer',
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: '0.3rem'
+                              }}
+                            >
+                              <Trash2 size={13} /> Remove
+                            </button>
+                          )}
+                        </div>
                       </div>
 
                       {/* Footer: Designated Faculty */}
@@ -936,6 +1066,53 @@ export function CourseInfoView({ user, onBackToDashboard }) {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      <CourseOutlineModal
+        course={outlineSelection?.course || null}
+        semesterName={outlineSelection?.semesterName}
+        canManage={isFacultyOrAdmin}
+        onClose={() => setOutlineSelection(null)}
+        onSave={handleSaveCourseOutline}
+      />
+
+      {deleteTarget && (
+        <div style={{
+          position: 'fixed', inset: 0, zIndex: 10001, background: 'rgba(15, 23, 42, 0.65)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem'
+        }}>
+          <div role="dialog" aria-modal="true" aria-labelledby="remove-course-title" style={{
+            background: '#ffffff', borderRadius: '14px', width: 'min(470px, 100%)', padding: '1.4rem',
+            boxShadow: '0 18px 45px rgba(15, 23, 42, 0.28)'
+          }}>
+            <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'flex-start' }}>
+              <div style={{ width: '38px', height: '38px', borderRadius: '10px', background: '#fef2f2', color: '#dc2626', display: 'grid', placeItems: 'center', flex: '0 0 auto' }}>
+                <Trash2 size={18} />
+              </div>
+              <div>
+                <h3 id="remove-course-title" style={{ margin: 0, color: '#0f172a', fontSize: '1.1rem' }}>Remove added course?</h3>
+                <p style={{ margin: '0.35rem 0 0', color: '#475569', lineHeight: 1.5, fontSize: '0.88rem' }}>
+                  <strong>{deleteTarget.course_code}</strong> — {deleteTarget.course_title} will be permanently removed, including its saved course-content table. This cannot be undone.
+                </p>
+              </div>
+            </div>
+
+            {deleteFeedback && (
+              <div role="alert" style={{ marginTop: '1rem', background: '#fef2f2', border: '1px solid #fecaca', color: '#b91c1c', padding: '0.75rem', borderRadius: '8px', fontSize: '0.82rem', lineHeight: 1.45 }}>
+                {deleteFeedback}
+              </div>
+            )}
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.65rem', marginTop: '1.2rem', flexWrap: 'wrap' }}>
+              <button type="button" disabled={deletingCourse} onClick={() => { setDeleteTarget(null); setDeleteFeedback(null); }} style={{ padding: '0.62rem 0.95rem', border: '1px solid #cbd5e1', background: '#ffffff', color: '#334155', borderRadius: '8px', cursor: 'pointer', fontWeight: 700 }}>
+                Cancel
+              </button>
+              <button type="button" disabled={deletingCourse} onClick={handleDeleteCourse} style={{ padding: '0.62rem 0.95rem', border: 'none', background: deletingCourse ? '#fca5a5' : '#dc2626', color: '#ffffff', borderRadius: '8px', cursor: deletingCourse ? 'wait' : 'pointer', fontWeight: 800 }}>
+                {deletingCourse ? 'Removing...' : 'Remove course'}
+              </button>
+            </div>
           </div>
         </div>
       )}

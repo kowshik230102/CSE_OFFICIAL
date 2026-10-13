@@ -92,6 +92,7 @@ function initializeDatabase() {
       is_optional INTEGER DEFAULT 0,
       elective_group TEXT,
       syllabus_outline TEXT,
+      is_custom INTEGER DEFAULT 0,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       UNIQUE (semester_id, course_code)
     );
@@ -316,6 +317,9 @@ function initializeDatabase() {
   try {
     db.exec(`ALTER TABLE courses ADD COLUMN lifecycle_status TEXT DEFAULT 'ACTIVE'`);
   } catch (e) { /* Column already exists */ }
+  try {
+    db.exec(`ALTER TABLE courses ADD COLUMN is_custom INTEGER DEFAULT 0`);
+  } catch (e) { /* Column already exists */ }
 
   // Gracefully migrate semesters table columns for Regular Assessment lifecycle
   const semesterExtraCols = [
@@ -416,6 +420,23 @@ function initializeDatabase() {
     );
     CREATE INDEX IF NOT EXISTS idx_assessment_audit_logs_course ON assessment_audit_logs(course_id, created_at DESC);
     CREATE INDEX IF NOT EXISTS idx_assessment_audit_logs_sem ON assessment_audit_logs(semester_id, created_at DESC);
+
+    -- Course content entries are maintained separately from the legacy general syllabus text.
+    -- This keeps a structured CO-wise outline without losing existing course information.
+    CREATE TABLE IF NOT EXISTS course_outline_entries (
+      id TEXT PRIMARY KEY,
+      course_id TEXT NOT NULL REFERENCES courses(id) ON DELETE CASCADE,
+      sequence_no INTEGER NOT NULL,
+      co_code TEXT NOT NULL,
+      topic TEXT NOT NULL,
+      theory_contact_hours REAL NOT NULL DEFAULT 0 CHECK(theory_contact_hours >= 0),
+      lab_contact_hours REAL NOT NULL DEFAULT 0 CHECK(lab_contact_hours >= 0),
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE(course_id, sequence_no)
+    );
+    CREATE INDEX IF NOT EXISTS idx_course_outline_entries_course_order
+      ON course_outline_entries(course_id, sequence_no);
   `);
 
   // Curriculum, enrollment, and results indexes
@@ -1007,10 +1028,12 @@ function ensureFullCurriculum() {
         const semId = semesterMap[semDef.termCode];
         if (!semId) continue;
 
-        const coursesInSem = db.prepare('SELECT id, course_code FROM courses WHERE semester_id = ?').all(semId);
+        const coursesInSem = db.prepare('SELECT id, course_code, is_custom FROM courses WHERE semester_id = ?').all(semId);
         for (const cur of coursesInSem) {
           const normKey = `${semDef.termCode}_${cur.course_code.replace(/[^A-Za-z0-9]/g, '').toUpperCase()}`;
-          if (!officialMap.has(normKey)) {
+          // Courses entered through Curriculum Management are intentionally retained.
+          // Only stale, non-custom seeded courses may be removed during baseline sync.
+          if (!officialMap.has(normKey) && !cur.is_custom) {
             db.prepare('DELETE FROM course_assignments WHERE course_id = ?').run(cur.id);
             db.prepare('DELETE FROM course_materials WHERE course_id = ?').run(cur.id);
             db.prepare('DELETE FROM ct_marks WHERE course_id = ?').run(cur.id);

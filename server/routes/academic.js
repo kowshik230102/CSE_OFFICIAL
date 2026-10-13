@@ -19,6 +19,75 @@ function requireAcademicAuthority(req, res, next) {
   return res.status(403).json({ error: 'Access Denied: Only Department Faculty, Chairman, or Academic Office Staff can perform this action.' });
 }
 
+const MAX_OUTLINE_ENTRIES = 60;
+const MAX_OUTLINE_TOPIC_LENGTH = 8000;
+
+function normalizeOutlineEntries(entries) {
+  if (!Array.isArray(entries)) {
+    throw new Error('Course content must be submitted as a list of CO-wise entries.');
+  }
+  if (entries.length > MAX_OUTLINE_ENTRIES) {
+    throw new Error(`A course can contain at most ${MAX_OUTLINE_ENTRIES} content entries.`);
+  }
+
+  return entries.map((entry, index) => {
+    const coCode = String(entry?.coCode ?? entry?.co_code ?? '').trim().toUpperCase().replace(/\s+/g, ' ');
+    const topic = String(entry?.topic ?? '').trim();
+    const parseHours = (value, label) => {
+      if (value === '' || value === null || value === undefined) return 0;
+      const parsed = Number(value);
+      if (!Number.isFinite(parsed) || parsed < 0 || parsed > 999) {
+        throw new Error(`${label} for item ${index + 1} must be a number from 0 to 999.`);
+      }
+      return Math.round(parsed * 100) / 100;
+    };
+    const theoryContactHours = parseHours(entry?.theoryContactHours ?? entry?.theory_contact_hours, 'Theory contact hours');
+    const labContactHours = parseHours(entry?.labContactHours ?? entry?.lab_contact_hours, 'Lab contact hours');
+
+    if (!coCode || coCode.length > 30) {
+      throw new Error(`Please enter a valid CO label for item ${index + 1}.`);
+    }
+    if (!topic || topic.length > MAX_OUTLINE_TOPIC_LENGTH) {
+      throw new Error(`Please enter course topics (up to ${MAX_OUTLINE_TOPIC_LENGTH} characters) for item ${index + 1}.`);
+    }
+    if (theoryContactHours + labContactHours <= 0) {
+      throw new Error(`Add theory or lab contact hours for item ${index + 1}.`);
+    }
+
+    return {
+      sequenceNo: index + 1,
+      coCode,
+      topic,
+      theoryContactHours,
+      labContactHours
+    };
+  });
+}
+
+function insertOutlineEntries(courseId, entries) {
+  const insertEntry = db.prepare(`
+    INSERT INTO course_outline_entries (
+      id, course_id, sequence_no, co_code, topic, theory_contact_hours, lab_contact_hours
+    ) VALUES (?, ?, ?, ?, ?, ?, ?)
+  `);
+
+  for (const entry of entries) {
+    insertEntry.run(
+      'coe-' + crypto.randomUUID(),
+      courseId,
+      entry.sequenceNo,
+      entry.coCode,
+      entry.topic,
+      entry.theoryContactHours,
+      entry.labContactHours
+    );
+  }
+}
+
+function hasOwn(object, property) {
+  return Object.prototype.hasOwnProperty.call(object || {}, property);
+}
+
 // ==========================================
 // 1. SESSIONS MANAGEMENT
 // ==========================================
@@ -209,8 +278,8 @@ router.post('/semesters/:semesterId/courses', authenticateUser, requireRoles(['O
 
   const transaction = db.transaction(() => {
     db.prepare(`
-      INSERT INTO courses (id, semester_id, course_code, course_title, credit_hours, course_type, syllabus_outline)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO courses (id, semester_id, course_code, course_title, credit_hours, course_type, syllabus_outline, is_custom)
+      VALUES (?, ?, ?, ?, ?, ?, ?, 1)
     `).run(courseId, semesterId, courseCode.toUpperCase().trim(), courseTitle.trim(), parseFloat(creditHours), courseType || 'THEORY', syllabusOutline || null);
 
     // If a teacher was designated immediately
@@ -350,6 +419,13 @@ router.get('/curriculum', authenticateUser, (req, res) => {
     return a.semester_name.localeCompare(b.semester_name);
   });
 
+  const getOutlineEntries = db.prepare(`
+    SELECT id, sequence_no, co_code, topic, theory_contact_hours, lab_contact_hours
+    FROM course_outline_entries
+    WHERE course_id = ?
+    ORDER BY sequence_no ASC
+  `);
+
   const result = semesters.map(sem => {
     const courses = db.prepare(`
       SELECT c.*,
@@ -366,11 +442,16 @@ router.get('/curriculum', authenticateUser, (req, res) => {
       ORDER BY c.course_code ASC
     `).all(sem.id);
 
+    const coursesWithOutline = courses.map(course => ({
+      ...course,
+      outline_entries: getOutlineEntries.all(course.id)
+    }));
+
     return {
       ...sem,
       semester_id: sem.id,
-      courses,
-      total_credits: courses.reduce((sum, c) => sum + (c.credit_hours || 0), 0)
+      courses: coursesWithOutline,
+      total_credits: coursesWithOutline.reduce((sum, c) => sum + (c.credit_hours || 0), 0)
     };
   });
 
@@ -384,19 +465,56 @@ router.get('/curriculum', authenticateUser, (req, res) => {
 
 // Create new course directly under any semester (Chairman / Office Staff / Admin)
 router.post('/courses', authenticateUser, requireAcademicAuthority, (req, res) => {
-  const { semesterId, courseCode, courseTitle, creditHours, courseType, syllabusOutline, assignedTeacherId } = req.body;
+  const {
+    semesterId,
+    courseCode,
+    courseTitle,
+    creditHours,
+    courseType,
+    syllabusOutline,
+    assignedTeacherId,
+    outlineEntries: rawOutlineEntries
+  } = req.body;
 
   if (!semesterId || !courseCode || !courseTitle || creditHours === undefined) {
     return res.status(400).json({ error: 'Semester, Course Code, Title, and Credit Hours are required.' });
+  }
+
+  const normalizedCourseCode = String(courseCode).trim().toUpperCase();
+  const normalizedCourseTitle = String(courseTitle).trim();
+  const normalizedCreditHours = Number(creditHours);
+  const normalizedSyllabusOutline = syllabusOutline === undefined || syllabusOutline === null ? null : String(syllabusOutline).trim();
+  if (!normalizedCourseCode || normalizedCourseCode.length > 50 || !normalizedCourseTitle || normalizedCourseTitle.length > 250) {
+    return res.status(400).json({ error: 'Please provide a valid course code and course title.' });
+  }
+  if (!Number.isFinite(normalizedCreditHours) || normalizedCreditHours <= 0 || normalizedCreditHours > 30) {
+    return res.status(400).json({ error: 'Credit hours must be a number greater than 0 and no more than 30.' });
+  }
+  if (normalizedSyllabusOutline && normalizedSyllabusOutline.length > 12000) {
+    return res.status(400).json({ error: 'General course overview cannot exceed 12,000 characters.' });
+  }
+
+  let outlineEntries = [];
+  try {
+    if (rawOutlineEntries !== undefined) outlineEntries = normalizeOutlineEntries(rawOutlineEntries);
+  } catch (err) {
+    return res.status(400).json({ error: err.message });
+  }
+
+  const semester = db.prepare('SELECT id FROM semesters WHERE id = ?').get(semesterId);
+  if (!semester) {
+    return res.status(404).json({ error: 'The selected semester could not be found.' });
   }
 
   const courseId = 'c-' + crypto.randomUUID();
 
   const transaction = db.transaction(() => {
     db.prepare(`
-      INSERT INTO courses (id, semester_id, course_code, course_title, credit_hours, course_type, syllabus_outline)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
-    `).run(courseId, semesterId, courseCode.toUpperCase().trim(), courseTitle.trim(), parseFloat(creditHours), courseType || 'THEORY', syllabusOutline || null);
+      INSERT INTO courses (id, semester_id, course_code, course_title, credit_hours, course_type, syllabus_outline, is_custom)
+      VALUES (?, ?, ?, ?, ?, ?, ?, 1)
+    `).run(courseId, semesterId, normalizedCourseCode, normalizedCourseTitle, normalizedCreditHours, courseType || 'THEORY', normalizedSyllabusOutline || null);
+
+    if (outlineEntries.length) insertOutlineEntries(courseId, outlineEntries);
 
     if (assignedTeacherId) {
       db.prepare(`
@@ -410,11 +528,107 @@ router.post('/courses', authenticateUser, requireAcademicAuthority, (req, res) =
     transaction();
     return res.status(201).json({
       success: true,
-      message: `Course ${courseCode.toUpperCase()} (${courseTitle}) added successfully!`,
+      message: `Course ${normalizedCourseCode} (${normalizedCourseTitle}) added successfully!`,
       courseId
     });
   } catch (err) {
     return res.status(400).json({ error: 'Failed to create course: ' + err.message });
+  }
+});
+
+// Update course details and replace its CO-wise course content in one transaction.
+router.put('/courses/:courseId', authenticateUser, requireAcademicAuthority, (req, res) => {
+  const { courseId } = req.params;
+  const existing = db.prepare('SELECT * FROM courses WHERE id = ?').get(courseId);
+  if (!existing) return res.status(404).json({ error: 'Course not found.' });
+
+  const nextCourseCode = hasOwn(req.body, 'courseCode') ? String(req.body.courseCode || '').trim().toUpperCase() : existing.course_code;
+  const nextCourseTitle = hasOwn(req.body, 'courseTitle') ? String(req.body.courseTitle || '').trim() : existing.course_title;
+  const nextCreditHours = hasOwn(req.body, 'creditHours') ? Number(req.body.creditHours) : Number(existing.credit_hours);
+  const nextCourseType = hasOwn(req.body, 'courseType') ? String(req.body.courseType || '').trim() : existing.course_type;
+  const nextSyllabusOutline = hasOwn(req.body, 'syllabusOutline')
+    ? (req.body.syllabusOutline === null ? null : String(req.body.syllabusOutline || '').trim() || null)
+    : existing.syllabus_outline;
+
+  if (!nextCourseCode || nextCourseCode.length > 50 || !nextCourseTitle || nextCourseTitle.length > 250) {
+    return res.status(400).json({ error: 'Please provide a valid course code and course title.' });
+  }
+  if (!Number.isFinite(nextCreditHours) || nextCreditHours <= 0 || nextCreditHours > 30) {
+    return res.status(400).json({ error: 'Credit hours must be a number greater than 0 and no more than 30.' });
+  }
+  if (nextSyllabusOutline && nextSyllabusOutline.length > 12000) {
+    return res.status(400).json({ error: 'General course overview cannot exceed 12,000 characters.' });
+  }
+
+  let outlineEntries = null;
+  try {
+    if (hasOwn(req.body, 'outlineEntries')) outlineEntries = normalizeOutlineEntries(req.body.outlineEntries);
+  } catch (err) {
+    return res.status(400).json({ error: err.message });
+  }
+
+  const transaction = db.transaction(() => {
+    db.prepare(`
+      UPDATE courses
+      SET course_code = ?, course_title = ?, credit_hours = ?, course_type = ?, syllabus_outline = ?
+      WHERE id = ?
+    `).run(nextCourseCode, nextCourseTitle, nextCreditHours, nextCourseType || 'THEORY', nextSyllabusOutline, courseId);
+
+    if (outlineEntries !== null) {
+      db.prepare('DELETE FROM course_outline_entries WHERE course_id = ?').run(courseId);
+      insertOutlineEntries(courseId, outlineEntries);
+    }
+  });
+
+  try {
+    transaction();
+    return res.json({ message: 'Course content updated successfully.' });
+  } catch (err) {
+    return res.status(400).json({ error: 'Unable to update course: ' + err.message });
+  }
+});
+
+// A course may be removed only while no academic, assessment, or timetable records depend on it.
+router.delete('/courses/:courseId', authenticateUser, requireAcademicAuthority, (req, res) => {
+  const { courseId } = req.params;
+  const course = db.prepare('SELECT id, course_code, course_title, is_custom FROM courses WHERE id = ?').get(courseId);
+  if (!course) return res.status(404).json({ error: 'Course not found.' });
+
+  if (!course.is_custom) {
+    return res.status(409).json({
+      error: 'This is a standard curriculum course and cannot be removed here. Only courses added through Curriculum Management can be removed.'
+    });
+  }
+
+  const likeCourseId = `%${courseId}%`;
+  const dependencies = [
+    ['faculty assignment', db.prepare('SELECT COUNT(*) AS count FROM course_assignments WHERE course_id = ?').get(courseId).count],
+    ['learning material', db.prepare('SELECT COUNT(*) AS count FROM course_materials WHERE course_id = ?').get(courseId).count],
+    ['class-test mark', db.prepare('SELECT COUNT(*) AS count FROM ct_marks WHERE course_id = ?').get(courseId).count],
+    ['student enrollment', db.prepare('SELECT COUNT(*) AS count FROM course_enrollments WHERE course_id = ?').get(courseId).count],
+    ['published result', db.prepare('SELECT COUNT(*) AS count FROM student_results WHERE course_id = ?').get(courseId).count],
+    ['assessment record', db.prepare('SELECT COUNT(*) AS count FROM course_assessments WHERE course_id = ?').get(courseId).count],
+    ['assessment audit record', db.prepare('SELECT COUNT(*) AS count FROM assessment_audit_logs WHERE course_id = ?').get(courseId).count],
+    ['routine reference', db.prepare('SELECT COUNT(*) AS count FROM routines WHERE routine_data LIKE ?').get(likeCourseId).count]
+  ].filter(([, count]) => count > 0);
+
+  if (dependencies.length) {
+    return res.status(409).json({
+      error: 'This course is already in use and cannot be removed. Remove or reassign the linked records first.',
+      dependencies: dependencies.map(([label, count]) => ({ label, count }))
+    });
+  }
+
+  const transaction = db.transaction(() => {
+    db.prepare('DELETE FROM course_outline_entries WHERE course_id = ?').run(courseId);
+    db.prepare('DELETE FROM courses WHERE id = ?').run(courseId);
+  });
+
+  try {
+    transaction();
+    return res.json({ message: `${course.course_code} was removed successfully.` });
+  } catch (err) {
+    return res.status(500).json({ error: 'Unable to remove course: ' + err.message });
   }
 });
 
