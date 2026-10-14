@@ -96,7 +96,8 @@ function daysInclusive(startDate, endDate) {
   return Math.floor((end - start) / 86400000) + 1;
 }
 
-function getCalendarMetrics(semester, today = new Date()) {
+function getCalendarMetrics(semester) {
+  const today = new Date();
   const dateToday = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate()));
   const semesterStart = new Date(`${semester.start_date}T00:00:00Z`);
   const semesterEnd = new Date(`${semester.end_date}T00:00:00Z`);
@@ -558,12 +559,13 @@ router.get('/running-semesters', authenticateUser, requireRoles(['ADMIN']), (req
       FROM semesters sem
       JOIN academic_sessions s ON s.id = sem.session_id
       WHERE sem.start_date IS NOT NULL AND sem.class_start_date IS NOT NULL
-    `).all().map(getCalendarMetrics);
+    `).all().map(semester => getCalendarMetrics(semester));
 
     const sortByDate = (a, b) => b.start_date.localeCompare(a.start_date);
     return res.json({
       running: semesters.filter(sem => sem.calendar_status === 'RUNNING').sort(sortByDate),
-      recent: semesters.filter(sem => sem.calendar_status === 'RECENT').sort(sortByDate)
+      recent: semesters.filter(sem => sem.calendar_status === 'RECENT').sort(sortByDate),
+      upcoming: semesters.filter(sem => sem.calendar_status === 'UPCOMING').sort(sortByDate)
     });
   } catch (err) {
     return res.status(500).json({ error: 'Failed to load the academic calendar: ' + err.message });

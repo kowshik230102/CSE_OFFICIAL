@@ -240,7 +240,15 @@ router.get('/meta/academic-tree', authenticateUser, (req, res) => {
   try {
     const sessions = db.prepare(`
       SELECT id, session_name, start_date, end_date, is_current
-      FROM academic_sessions
+      FROM academic_sessions s
+      WHERE EXISTS (
+        SELECT 1 FROM semesters sem
+        WHERE sem.session_id = s.id
+          AND sem.term_code LIKE 'CAL-%'
+          AND sem.start_date IS NOT NULL
+          AND date('now', 'localtime') >= date(sem.start_date)
+          AND (sem.end_date IS NULL OR date('now', 'localtime') <= date(sem.end_date))
+      )
       ORDER BY session_name DESC
     `).all();
 
@@ -249,6 +257,10 @@ router.get('/meta/academic-tree', authenticateUser, (req, res) => {
         SELECT id, semester_name, term_code
         FROM semesters
         WHERE session_id = ?
+          AND term_code LIKE 'CAL-%'
+          AND start_date IS NOT NULL
+          AND date('now', 'localtime') >= date(start_date)
+          AND (end_date IS NULL OR date('now', 'localtime') <= date(end_date))
         ORDER BY term_code ASC
       `).all(sess.id);
 

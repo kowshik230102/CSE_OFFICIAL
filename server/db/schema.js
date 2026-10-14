@@ -479,7 +479,8 @@ function initializeDatabase() {
   ensureRichNotices();
   ensureUniversityCTMarks();
   ensureChairmanAccount();
-  ensureFullCurriculum();
+  // Semesters are created only through the centralized Running Semester calendar.
+  // Do not recreate predefined curriculum semesters on every server startup.
   ensurePustFacultyMembers();
 }
 

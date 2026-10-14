@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { CalendarDays, CheckCircle, Clock3, Pencil, Plus, RefreshCw } from 'lucide-react';
+import { CalendarDays, CheckCircle, Clock3, Pencil, Plus, RefreshCw, CalendarClock } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 
 const emptyForm = { sessionName: '', year: '', semester: '', startDate: '', endDate: '' };
@@ -43,7 +43,7 @@ function CalendarCard({ semester, onEdit, recent = false }) {
 
 export function RunningSemesterView() {
   const { token } = useAuth();
-  const [calendar, setCalendar] = useState({ running: [], recent: [] });
+  const [calendar, setCalendar] = useState({ running: [], recent: [], upcoming: [] });
   const [form, setForm] = useState(emptyForm);
   const [editingId, setEditingId] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -57,7 +57,7 @@ export function RunningSemesterView() {
       const calendarRes = await fetch('/api/academic/running-semesters', { headers });
       const calendarData = await calendarRes.json();
       if (!calendarRes.ok) throw new Error(calendarData.error || 'Could not load the academic calendar.');
-      setCalendar({ running: calendarData.running || [], recent: calendarData.recent || [] });
+      setCalendar({ running: calendarData.running || [], recent: calendarData.recent || [], upcoming: calendarData.upcoming || [] });
     } catch (error) {
       setMessage({ type: 'error', text: error.message });
     } finally { setLoading(false); }
@@ -100,6 +100,7 @@ export function RunningSemesterView() {
     </div>
     {message && <div style={{ padding: '.75rem 1rem', borderRadius: '8px', color: message.type === 'success' ? 'var(--success-text)' : 'var(--danger-text)', background: message.type === 'success' ? 'var(--success-bg)' : 'var(--danger-bg)' }}>{message.text}</div>}
     <section><div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '.75rem' }}><h3 style={{ display: 'flex', gap: '.5rem', alignItems: 'center', margin: 0 }}><Clock3 size={18} color="#16a34a" /> Running Semesters</h3><button className="btn btn-secondary btn-sm" onClick={load}><RefreshCw size={14} /> Refresh</button></div>{loading ? <div className="card">Loading calendar…</div> : calendar.running.length ? <div style={{ display: 'grid', gap: '1.25rem' }}>{bySession(calendar.running).map(([sessionName, semesters]) => <div key={sessionName}><div style={{ fontSize: '.78rem', fontWeight: 800, color: '#2563eb', marginBottom: '.5rem' }}>{sessionName}</div><div style={{ display: 'grid', gap: '1rem' }}>{semesters.map(semester => <CalendarCard key={semester.id} semester={semester} onEdit={edit} />)}</div></div>)}</div> : <div className="card" style={{ color: 'var(--text-muted)' }}>No semester is currently running. A saved semester appears here automatically on its start date.</div>}</section>
+    <section><h3 style={{ display: 'flex', gap: '.5rem', alignItems: 'center' }}><CalendarClock size={18} color="#d97706" /> Upcoming Semesters</h3>{loading ? null : calendar.upcoming.length ? <div style={{ display: 'grid', gap: '1.25rem' }}>{bySession(calendar.upcoming).map(([sessionName, semesters]) => <div key={sessionName}><div style={{ fontSize: '.78rem', fontWeight: 800, color: '#b45309', marginBottom: '.5rem' }}>{sessionName}</div><div style={{ display: 'grid', gap: '1rem' }}>{semesters.map(semester => <CalendarCard key={semester.id} semester={semester} onEdit={edit} recent />)}</div></div>)}</div> : <div className="card" style={{ color: 'var(--text-muted)' }}>No upcoming semester is saved.</div>}</section>
     <section><h3 style={{ display: 'flex', gap: '.5rem', alignItems: 'center' }}><CheckCircle size={18} color="#64748b" /> Recent Semesters</h3>{loading ? null : calendar.recent.length ? <div style={{ display: 'grid', gap: '1.25rem' }}>{bySession(calendar.recent).map(([sessionName, semesters]) => <div key={sessionName}><div style={{ fontSize: '.78rem', fontWeight: 800, color: '#64748b', marginBottom: '.5rem' }}>{sessionName}</div><div style={{ display: 'grid', gap: '1rem' }}>{semesters.map(semester => <CalendarCard key={semester.id} semester={semester} onEdit={edit} recent />)}</div></div>)}</div> : <div className="card" style={{ color: 'var(--text-muted)' }}>No completed semesters yet.</div>}</section>
   </div>;
 }
