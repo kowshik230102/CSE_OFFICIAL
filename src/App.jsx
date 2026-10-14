@@ -62,6 +62,7 @@ export function App() {
   const getRoleTab = () => {
     if (activeNavTab === 'dashboard') return 'my-courses';
     if (activeNavTab === 'notices') return 'notices';
+    if (activeNavTab === 'running-semester') return 'running-semester';
     if (activeNavTab === 'dept-info') return 'dept-info';
     if (activeNavTab === 'course-info') return 'course-info';
     if (activeNavTab === 'student-info') return 'student-info';

@@ -12,8 +12,10 @@ import {
   Filter, 
   Building,
   RefreshCw,
-  Bell
+  Bell,
+  Calendar
 } from 'lucide-react';
+import { RunningSemesterView } from './RunningSemesterView';
 
 export const AdminView = ({ initialTab = 'users' }) => {
   const { token, user } = useAuth();
@@ -196,11 +198,20 @@ export const AdminView = ({ initialTab = 'users' }) => {
           <Bell size={16} style={{ color: activeTab === 'notices' ? '#2563eb' : '#64748b' }} /> 
           <span>2. Department Notice Board Feed</span>
         </button>
+        <button
+          onClick={() => setActiveTab('running-semester')}
+          className={`segmented-tab-btn ${activeTab === 'running-semester' ? 'active' : ''}`}
+        >
+          <Calendar size={16} style={{ color: activeTab === 'running-semester' ? '#2563eb' : '#64748b' }} />
+          <span>3. Running Semester</span>
+        </button>
       </div>
 
       {activeTab === 'notices' && (
         <NoticeBoard user={user} token={token} />
       )}
+
+      {activeTab === 'running-semester' && <RunningSemesterView />}
 
       {activeTab === 'users' && (
         <>

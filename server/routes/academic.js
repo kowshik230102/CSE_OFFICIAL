@@ -88,6 +88,35 @@ function hasOwn(object, property) {
   return Object.prototype.hasOwnProperty.call(object || {}, property);
 }
 
+function daysInclusive(startDate, endDate) {
+  if (!startDate || !endDate) return null;
+  const start = new Date(`${startDate}T00:00:00Z`);
+  const end = new Date(`${endDate}T00:00:00Z`);
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || end < start) return null;
+  return Math.floor((end - start) / 86400000) + 1;
+}
+
+function getCalendarMetrics(semester, today = new Date()) {
+  const dateToday = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate()));
+  const semesterStart = new Date(`${semester.start_date}T00:00:00Z`);
+  const semesterEnd = new Date(`${semester.end_date}T00:00:00Z`);
+  const classStart = new Date(`${semester.class_start_date}T00:00:00Z`);
+  const hasSemesterEnd = Boolean(semester.end_date) && !Number.isNaN(semesterEnd.getTime());
+  const status = dateToday < semesterStart ? 'UPCOMING' : hasSemesterEnd && dateToday > semesterEnd ? 'RECENT' : 'RUNNING';
+  const totalClassDays = daysInclusive(semester.class_start_date, semester.class_end_date);
+  const elapsedClassDays = dateToday < classStart ? 0 : daysInclusive(semester.class_start_date, dateToday.toISOString().slice(0, 10));
+  const completedClassDays = totalClassDays === null ? elapsedClassDays : Math.min(totalClassDays, elapsedClassDays);
+  return {
+    ...semester,
+    calendar_status: status,
+    total_semester_days: daysInclusive(semester.start_date, semester.end_date),
+    total_class_days: totalClassDays,
+    completed_class_days: completedClassDays,
+    remaining_class_days: totalClassDays === null ? null : Math.max(0, totalClassDays - completedClassDays),
+    remaining_semester_days: !hasSemesterEnd ? null : dateToday > semesterEnd ? 0 : Math.max(0, daysInclusive(dateToday > semesterStart ? today.toISOString().slice(0, 10) : semester.start_date, semester.end_date))
+  };
+}
+
 // ==========================================
 // 1. SESSIONS MANAGEMENT
 // ==========================================
@@ -533,6 +562,85 @@ router.post('/courses', authenticateUser, requireAcademicAuthority, (req, res) =
     });
   } catch (err) {
     return res.status(400).json({ error: 'Failed to create course: ' + err.message });
+  }
+});
+
+// Central academic calendar: date-driven semester status and calculated calendar totals.
+router.get('/running-semesters', authenticateUser, requireRoles(['ADMIN']), (req, res) => {
+  try {
+    const semesters = db.prepare(`
+      SELECT sem.id, sem.session_id, sem.semester_name, sem.term_code, sem.year, sem.semester,
+             sem.start_date, sem.end_date, sem.class_start_date, sem.class_end_date,
+             s.session_name
+      FROM semesters sem
+      JOIN academic_sessions s ON s.id = sem.session_id
+      WHERE sem.start_date IS NOT NULL AND sem.class_start_date IS NOT NULL
+    `).all().map(getCalendarMetrics);
+
+    const sortByDate = (a, b) => b.start_date.localeCompare(a.start_date);
+    return res.json({
+      running: semesters.filter(sem => sem.calendar_status === 'RUNNING').sort(sortByDate),
+      recent: semesters.filter(sem => sem.calendar_status === 'RECENT').sort(sortByDate)
+    });
+  } catch (err) {
+    return res.status(500).json({ error: 'Failed to load the academic calendar: ' + err.message });
+  }
+});
+
+router.post('/running-semesters', authenticateUser, requireRoles(['ADMIN']), (req, res) => {
+  const { sessionName, year, semester, startDate, endDate } = req.body;
+  if (![sessionName, year, semester, startDate].every(value => String(value || '').trim())) {
+    return res.status(400).json({ error: 'Academic session, year, semester, and semester start date are required.' });
+  }
+  if (endDate && endDate < startDate) {
+    return res.status(400).json({ error: 'Semester end date cannot be before the semester start date.' });
+  }
+  const normalizedSessionName = sessionName.trim();
+  const semesterName = `${year.trim()} Year ${semester.trim()} Semester`;
+  let session = db.prepare('SELECT id FROM academic_sessions WHERE LOWER(session_name) = LOWER(?)').get(normalizedSessionName);
+  if (!session) {
+    const sessionId = 'sess-' + crypto.randomUUID();
+    db.prepare('INSERT INTO academic_sessions (id, session_name, start_date, end_date, is_current) VALUES (?, ?, ?, ?, 0)')
+      .run(sessionId, normalizedSessionName, startDate, endDate || null);
+    session = { id: sessionId };
+  }
+  const existing = db.prepare('SELECT id FROM semesters WHERE session_id = ? AND LOWER(semester_name) = LOWER(?)').get(session.id, semesterName);
+  if (existing) return res.status(400).json({ error: 'This semester already exists in the selected academic session.' });
+
+  const id = 'sem-' + crypto.randomUUID();
+  try {
+    db.prepare(`INSERT INTO semesters (id, session_id, semester_name, term_code, year, semester, start_date, end_date, class_start_date, class_end_date, is_active)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)`).run(id, session.id, semesterName, `CAL-${crypto.randomUUID()}`, year.trim(), semester.trim(), startDate, endDate || null, startDate, endDate || null);
+    return res.status(201).json({ message: 'Semester calendar saved.', id });
+  } catch (err) {
+    return res.status(500).json({ error: 'Failed to save the semester calendar: ' + err.message });
+  }
+});
+
+router.put('/running-semesters/:id', authenticateUser, requireRoles(['ADMIN']), (req, res) => {
+  const { sessionName, year, semester, startDate, endDate } = req.body;
+  if (![sessionName, year, semester, startDate].every(value => String(value || '').trim())) {
+    return res.status(400).json({ error: 'Academic session, year, semester, and semester start date are required.' });
+  }
+  if (endDate && endDate < startDate) {
+    return res.status(400).json({ error: 'Semester end date cannot be before the semester start date.' });
+  }
+  try {
+    const normalizedSessionName = sessionName.trim();
+    let session = db.prepare('SELECT id FROM academic_sessions WHERE LOWER(session_name) = LOWER(?)').get(normalizedSessionName);
+    if (!session) {
+      const sessionId = 'sess-' + crypto.randomUUID();
+      db.prepare('INSERT INTO academic_sessions (id, session_name, start_date, end_date, is_current) VALUES (?, ?, ?, ?, 0)')
+        .run(sessionId, normalizedSessionName, startDate, endDate || null);
+      session = { id: sessionId };
+    }
+    const semesterName = `${year.trim()} Year ${semester.trim()} Semester`;
+    const result = db.prepare(`UPDATE semesters SET session_id = ?, semester_name = ?, year = ?, semester = ?, start_date = ?, end_date = ?, class_start_date = ?, class_end_date = ? WHERE id = ?`)
+      .run(session.id, semesterName, year.trim(), semester.trim(), startDate, endDate || null, startDate, endDate || null, req.params.id);
+    if (!result.changes) return res.status(404).json({ error: 'Semester calendar was not found.' });
+    return res.json({ message: 'Semester calendar updated.' });
+  } catch (err) {
+    return res.status(400).json({ error: 'Failed to update the semester calendar: ' + err.message });
   }
 });
 

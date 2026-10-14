@@ -327,6 +327,7 @@ function initializeDatabase() {
     `ALTER TABLE semesters ADD COLUMN semester INTEGER`,
     `ALTER TABLE semesters ADD COLUMN start_date DATE`,
     `ALTER TABLE semesters ADD COLUMN end_date DATE`,
+    `ALTER TABLE semesters ADD COLUMN class_start_date DATE`,
     `ALTER TABLE semesters ADD COLUMN class_end_date DATE`,
     `ALTER TABLE semesters ADD COLUMN assessment_deadline DATE`,
     `ALTER TABLE semesters ADD COLUMN status TEXT DEFAULT 'Running'`,

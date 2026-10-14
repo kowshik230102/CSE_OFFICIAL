@@ -241,6 +241,26 @@ export const CollapsibleSidebar = ({
                 </span>
               </button>
 
+              {user?.role === 'ADMIN' && (
+                <button
+                  onClick={() => handleNavClick('running-semester')}
+                  className={`sidebar-nav-btn ${activeNavTab === 'running-semester' ? 'active' : ''}`}
+                  style={{
+                    background: activeNavTab === 'running-semester' ? 'linear-gradient(135deg, rgba(37, 99, 235, 0.28), rgba(14, 165, 233, 0.18))' : undefined,
+                    borderColor: activeNavTab === 'running-semester' ? '#60a5fa' : undefined
+                  }}
+                >
+                  <Calendar size={16} style={{ color: activeNavTab === 'running-semester' ? '#93c5fd' : '#7dd3fc' }} />
+                  <span>Running Semester</span>
+                  <span style={{
+                    marginLeft: 'auto', fontSize: '0.65rem', fontWeight: 800,
+                    background: '#2563eb', color: '#ffffff', padding: '0.1rem 0.45rem', borderRadius: '8px'
+                  }}>
+                    CALENDAR
+                  </span>
+                </button>
+              )}
+
               {/* Course Information (Organized 1-1 to 4-2 + Add Course) */}
               <button
                 onClick={() => handleNavClick('course-info')}
