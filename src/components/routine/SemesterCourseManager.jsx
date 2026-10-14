@@ -37,12 +37,20 @@ export function SemesterCourseManager({
   onToggleCourseInRoutine,
   onOpenTeacherModal,
   onOpenCopySemesterModal,
-  onAddSemesterModalOpen,
   onOpenStudentModal
 }) {
   const currentSemIdx = selectedSemesterIndex !== undefined ? selectedSemesterIndex : activeSemesterIndex;
   const activeSemester = semesters[currentSemIdx] || semesters[0];
   const courses = activeSemester?.courses || [];
+  const normalizeCourseKey = (value) => String(value || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+  const slotMatchesCourse = (slot, course) => {
+    const courseIds = [course.courseId, course.id].filter(Boolean).map(String);
+    const slotIdMatches = slot.courseId && courseIds.includes(String(slot.courseId));
+    const codeMatches = normalizeCourseKey(slot.courseCode) && normalizeCourseKey(slot.courseCode) === normalizeCourseKey(course.courseCode);
+    const titleMatches = normalizeCourseKey(slot.courseTitle) && normalizeCourseKey(slot.courseTitle) === normalizeCourseKey(course.courseTitle);
+    const semesterMatches = !slot.semesterId || !activeSemester?.semesterId || String(slot.semesterId) === String(activeSemester.semesterId);
+    return semesterMatches && (slotIdMatches || codeMatches || titleMatches);
+  };
 
   const handleSelectSem = onSelectSemester || onSelectSemesterIndex || (() => {});
   const handleAddCourse = onOpenAddCourseModal || onAddCourse || (() => {});
@@ -74,7 +82,6 @@ export function SemesterCourseManager({
   };
 
   const handleCopySemester = onOpenCopySemesterModal || (() => {});
-  const handleAddSemester = onAddSemesterModalOpen || (() => {});
 
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('ALL'); // 'ALL', 'ACTIVE', 'COMPLETED', 'ARCHIVED'
@@ -140,25 +147,6 @@ export function SemesterCourseManager({
             );
           })}
 
-          <button
-            type="button"
-            onClick={handleAddSemester}
-            style={{
-              background: '#f8fafc',
-              border: '1px dashed #cbd5e1',
-              color: '#4f46e5',
-              padding: '0.45rem 0.85rem',
-              borderRadius: '8px',
-              fontSize: '0.8rem',
-              fontWeight: 800,
-              cursor: 'pointer',
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: '0.35rem'
-            }}
-          >
-            <Plus size={14} /> Add Semester
-          </button>
         </div>
 
         {/* Action Controls */}
@@ -294,29 +282,9 @@ export function SemesterCourseManager({
                     <div style={{ fontWeight: 800, fontSize: '1.05rem', color: '#0f172a', marginBottom: '0.35rem' }}>
                       No Semesters in Routine
                     </div>
-                    <p style={{ fontSize: '0.82rem', color: '#64748b', margin: '0 0 1.25rem 0' }}>
-                      Add an academic semester session to automatically populate courses, assign teachers, and start building the timetable.
+                    <p style={{ fontSize: '0.82rem', color: '#64748b', margin: 0 }}>
+                      Running and upcoming semesters are shown here automatically from the academic calendar.
                     </p>
-                    <button
-                      type="button"
-                      onClick={handleAddSemester}
-                      style={{
-                        background: 'linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%)',
-                        color: '#ffffff',
-                        border: 'none',
-                        padding: '0.6rem 1.25rem',
-                        borderRadius: '8px',
-                        fontSize: '0.84rem',
-                        fontWeight: 800,
-                        cursor: 'pointer',
-                        display: 'inline-flex',
-                        alignItems: 'center',
-                        gap: '0.45rem',
-                        boxShadow: '0 4px 12px rgba(37, 99, 235, 0.25)'
-                      }}
-                    >
-                      <Plus size={16} /> Add Semester Session
-                    </button>
                   </div>
                 </td>
               </tr>
@@ -334,14 +302,7 @@ export function SemesterCourseManager({
                 const reqHours = Number(course.weeklyHours) || (isLab ? Math.round(Number(course.creditHours || 3) * 2) : Math.round(Number(course.creditHours || 3)));
                 
                 // Calculate filled (scheduled) hours from currentSchedule for both department & non-department courses
-                const cid = course.courseId || course.id;
-                const semSlots = (currentSchedule || []).filter(s => {
-                  const matchCourse = 
-                    (s.courseId && (s.courseId === cid || s.courseId === course.id || s.courseId === course.courseId)) ||
-                    (s.courseCode && course.courseCode && s.courseCode.trim().toUpperCase() === course.courseCode.trim().toUpperCase());
-                  const matchSem = !s.semesterId || !activeSemester?.semesterId || s.semesterId === activeSemester?.semesterId;
-                  return matchCourse && matchSem;
-                });
+                const semSlots = (currentSchedule || []).filter(slot => slotMatchesCourse(slot, course));
                 const schedHours = semSlots.reduce((acc, s) => acc + (Number(s.span) || 1), 0);
                 const remainingHours = Math.max(0, reqHours - schedHours);
                 const teacherAssigned = course.teacher && course.teacher.teacherName && course.teacher.teacherName !== 'Not Assigned';

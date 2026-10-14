@@ -28,7 +28,13 @@ function getShortTerm(termCode, semesterName) {
   if (tc === 'Y3S2') return '3-2';
   if (tc === 'Y4S1') return '4-1';
   if (tc === 'Y4S2') return '4-2';
-  return termCode;
+  const nameMatch = String(semesterName || '').match(/(\d+)(?:st|nd|rd|th)?\s*year\s*(\d+)(?:st|nd|rd|th)?\s*semester/i);
+  if (nameMatch) return `${nameMatch[1]}-${nameMatch[2]}`;
+  return semesterName || termCode;
+}
+
+function isVivaCourse(course = {}) {
+  return /viva/i.test(`${course.courseCode || course.course_code || ''} ${course.courseTitle || course.course_title || ''}`);
 }
 
 // Helper to determine teacher short code / initials for PUST CSE
@@ -157,6 +163,145 @@ function loadFullSessionSemesters(sessionId = null) {
   }
 }
 
+// The departmental routine always follows the central academic calendar. Only
+// current/upcoming calendar semesters are included; legacy syllabus semesters
+// are never added to a routine.
+function loadCalendarRoutineSemesters() {
+  try {
+    const semesters = db.prepare(`
+      SELECT sem.id, sem.semester_name, sem.term_code, sem.session_id,
+             s.session_name
+      FROM semesters sem
+      JOIN academic_sessions s ON s.id = sem.session_id
+      WHERE sem.term_code LIKE 'CAL-%'
+        AND (COALESCE(sem.class_end_date, sem.end_date) IS NULL
+          OR date(COALESCE(sem.class_end_date, sem.end_date)) >= date('now', 'localtime'))
+      ORDER BY s.session_name ASC, sem.start_date ASC, sem.created_at ASC
+    `).all();
+
+    return semesters.map(semester => {
+      // Course Information is centrally maintained separately from calendar
+      // instances. Match the same year-semester syllabus, rather than relying
+      // on the calendar record itself to contain duplicate course rows.
+      const courses = db.prepare(`
+        SELECT c.id, c.course_code, c.course_title, c.credit_hours,
+               c.course_type, c.year, c.semester
+        FROM courses c
+        JOIN semesters syllabus_semester ON syllabus_semester.id = c.semester_id
+        WHERE syllabus_semester.term_code NOT LIKE 'CAL-%'
+          AND lower(syllabus_semester.semester_name) = lower(?)
+          AND lower(COALESCE(c.course_code, '')) NOT LIKE '%viva%'
+          AND lower(COALESCE(c.course_title, '')) NOT LIKE '%viva%'
+        GROUP BY c.course_code, c.course_title, c.credit_hours,
+                 c.course_type, c.year, c.semester
+        ORDER BY c.course_code ASC
+      `).all(semester.semester_name).map(course => {
+        const creditHours = Number(course.credit_hours) || 3;
+        const isLab = course.course_type === 'Sessional' || course.course_type === 'Lab'
+          || /sessional|lab/i.test(course.course_title || '');
+        return {
+          id: course.id,
+          courseId: course.id,
+          courseCode: course.course_code,
+          courseTitle: course.course_title,
+          creditHours,
+          // Every lab is a single, protected 3-hour practical block.
+          weeklyHours: isLab ? 3 : creditHours,
+          courseType: course.course_type || 'Theory',
+          year: course.year,
+          semester: course.semester,
+          assignmentStatus: 'Pending',
+          status: 'ACTIVE',
+          lifecycle_status: 'ACTIVE',
+          isIncluded: true,
+          inRoutine: true,
+          teacher: {
+            type: 'none', teacherId: null, teacherName: 'Not Assigned',
+            designation: '', department: 'CSE', departmentNumber: '', shortCode: ''
+          }
+        };
+      });
+
+      const studentCount = db.prepare(`
+        SELECT count(*) as count FROM students WHERE current_session_id = ?
+      `).get(semester.session_id)?.count || 0;
+
+      return {
+        semesterId: semester.id,
+        semesterName: semester.semester_name,
+        termCode: semester.term_code,
+        shortTerm: getShortTerm(semester.term_code, semester.semester_name),
+        sessionId: semester.session_id,
+        sessionName: semester.session_name,
+        totalStudents: studentCount,
+        excludedStudentIds: [],
+        courses
+      };
+    });
+  } catch (err) {
+    console.error('Error loading calendar semesters for routine:', err);
+    return [];
+  }
+}
+
+function syncRoutineCalendarSemesters(routine) {
+  let routineData = {};
+  try { routineData = JSON.parse(routine.routine_data || '{}'); } catch (e) { routineData = {}; }
+
+  const calendarSemesters = loadCalendarRoutineSemesters();
+  const existingById = new Map(
+    (Array.isArray(routineData.semesters) ? routineData.semesters : [])
+      .map(semester => [semester.semesterId || semester.id, semester])
+  );
+  const eligibleIds = new Set(calendarSemesters.map(semester => semester.semesterId));
+  const semesters = calendarSemesters.map(calendarSemester => {
+    const existing = existingById.get(calendarSemester.semesterId);
+    if (!existing) return calendarSemester;
+    const existingCoursesByCode = new Map(
+      (Array.isArray(existing.courses) ? existing.courses : [])
+        .map(course => [String(course.courseCode || course.course_code || '').trim().toUpperCase(), course])
+    );
+    const syncedCourseCodes = new Set(
+      calendarSemester.courses.map(course => String(course.courseCode || '').trim().toUpperCase())
+    );
+    const syncedCourses = calendarSemester.courses.map(course => {
+      const savedCourse = existingCoursesByCode.get(String(course.courseCode || '').trim().toUpperCase());
+      if (!savedCourse) return course;
+      // Keep routine-specific work (teacher assignment, inclusion and timetable
+      // references), while Course Information remains the source for course details.
+      return {
+        ...savedCourse,
+        ...course,
+        teacher: savedCourse.teacher || course.teacher,
+        assignmentStatus: savedCourse.assignmentStatus || course.assignmentStatus,
+        status: savedCourse.status || course.status,
+        lifecycle_status: savedCourse.lifecycle_status || course.lifecycle_status,
+        isIncluded: savedCourse.isIncluded !== false,
+        inRoutine: savedCourse.inRoutine !== false
+      };
+    });
+    const manualCourses = (Array.isArray(existing.courses) ? existing.courses : [])
+      .filter(course => !isVivaCourse(course)
+        && !syncedCourseCodes.has(String(course.courseCode || course.course_code || '').trim().toUpperCase()));
+    return {
+      ...existing,
+      ...calendarSemester,
+      courses: [...syncedCourses, ...manualCourses]
+    };
+  });
+  const schedule = (Array.isArray(routineData.schedule) ? routineData.schedule : [])
+    .filter(slot => eligibleIds.has(slot.semesterId) && !isVivaCourse(slot));
+  const syncedData = { ...routineData, semesters, schedule };
+
+  if (JSON.stringify(routineData.semesters || []) !== JSON.stringify(semesters)
+    || JSON.stringify(routineData.schedule || []) !== JSON.stringify(schedule)) {
+    db.prepare('UPDATE routines SET routine_data = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?')
+      .run(JSON.stringify(syncedData), routine.id);
+  }
+
+  return syncedData;
+}
+
 // 0. GET ALL DEPARTMENT FACULTY TEACHERS (Meta for Teacher Assignment)
 router.get('/meta/teachers', authenticateUser, (req, res) => {
   try {
@@ -200,14 +345,11 @@ router.get('/meta/schedule-config', authenticateUser, (req, res) => {
     commonRooms: [
       '501',
       '502',
+      '503',
       '504',
-      'R-504',
-      'R-519',
       'ACL',
-      'S/W Lab',
-      'Robotics Lab',
-      'Hardware Lab',
-      'Project'
+      'S/W',
+      'Network Lab'
     ]
   });
 });
@@ -245,8 +387,6 @@ router.get('/meta/academic-tree', authenticateUser, (req, res) => {
         SELECT 1 FROM semesters sem
         WHERE sem.session_id = s.id
           AND sem.term_code LIKE 'CAL-%'
-          AND sem.start_date IS NOT NULL
-          AND date('now', 'localtime') >= date(sem.start_date)
           AND (sem.end_date IS NULL OR date('now', 'localtime') <= date(sem.end_date))
       )
       ORDER BY session_name DESC
@@ -258,8 +398,6 @@ router.get('/meta/academic-tree', authenticateUser, (req, res) => {
         FROM semesters
         WHERE session_id = ?
           AND term_code LIKE 'CAL-%'
-          AND start_date IS NOT NULL
-          AND date('now', 'localtime') >= date(start_date)
           AND (end_date IS NULL OR date('now', 'localtime') <= date(end_date))
         ORDER BY term_code ASC
       `).all(sess.id);
@@ -420,14 +558,15 @@ router.get('/active', authenticateUser, (req, res) => {
         || db.prepare(`SELECT id, first_name, last_name FROM users LIMIT 1`).get();
 
       const newRoutineId = 'rtn-' + crypto.randomUUID();
-      const fullSemesters = loadFullSessionSemesters(curSession ? curSession.id : null);
       
       const newRoutineData = {
         routineName: 'Department of CSE Official Class Routine',
         department: 'CSE',
         academicYear: curSession ? curSession.session_name : 'Session 2026-2027',
         effectiveFrom: new Date().toISOString().split('T')[0],
-        semesters: fullSemesters,
+        // Semesters are selected explicitly from the academic calendar.  Never
+        // seed a new routine with the legacy curriculum semesters.
+        semesters: [],
         schedule: []
       };
 
@@ -460,23 +599,9 @@ router.get('/active', authenticateUser, (req, res) => {
       `).get(newRoutineId);
     }
 
-    let parsedData = {};
-    try {
-      parsedData = JSON.parse(routine.routine_data);
-    } catch (e) {
-      parsedData = {};
-    }
-
-    let semesters = Array.isArray(parsedData.semesters) ? parsedData.semesters : [];
-    let schedule = Array.isArray(parsedData.schedule) ? parsedData.schedule : [];
-
-    if (semesters.length === 0) {
-      semesters = loadFullSessionSemesters(routine.session_id);
-      parsedData.semesters = semesters;
-      try {
-        db.prepare('UPDATE routines SET routine_data = ? WHERE id = ?').run(JSON.stringify(parsedData), routine.id);
-      } catch (e) { /* ignore */ }
-    }
+    const parsedData = syncRoutineCalendarSemesters(routine);
+    const semesters = Array.isArray(parsedData.semesters) ? parsedData.semesters : [];
+    const schedule = Array.isArray(parsedData.schedule) ? parsedData.schedule : [];
 
     let totalActiveCourses = 0;
     const assignedTeacherSet = new Set();
@@ -871,6 +996,56 @@ router.get('/', authenticateUser, (req, res) => {
 });
 
 // 3.5 GET TEACHER WORKLOAD FOR A SPECIFIC ROUTINE
+// Remove only completed calendar semesters from a saved routine. Course and syllabus records remain untouched.
+router.post('/:id/refresh-calendar-semesters', authenticateUser, (req, res) => {
+  try {
+    const routine = db.prepare('SELECT id, routine_data FROM routines WHERE id = ?').get(req.params.id);
+    if (!routine) return res.status(404).json({ error: 'Routine not found.' });
+
+    let routineData = {};
+    try { routineData = JSON.parse(routine.routine_data || '{}'); } catch (e) { routineData = {}; }
+    const semesters = Array.isArray(routineData.semesters) ? routineData.semesters : [];
+    const eligibleIds = new Set(db.prepare(`
+      SELECT id FROM semesters
+      WHERE term_code LIKE 'CAL-%'
+        AND (COALESCE(class_end_date, end_date) IS NULL
+          OR date(COALESCE(class_end_date, end_date)) >= date('now', 'localtime'))
+    `).all().map(row => row.id));
+
+    const removed = semesters.filter(semester => !eligibleIds.has(semester.semesterId || semester.id));
+    if (removed.length === 0) {
+      return res.json({ message: 'Routine is already up to date.', removedCount: 0, routineData });
+    }
+
+    const remainingSemesters = semesters.filter(semester => eligibleIds.has(semester.semesterId || semester.id));
+    const removedIds = new Set(removed.map(semester => semester.semesterId || semester.id));
+    const remainingSchedule = (Array.isArray(routineData.schedule) ? routineData.schedule : [])
+      .filter(slot => !removedIds.has(slot.semesterId));
+    const firstRemaining = remainingSemesters[0] || null;
+    const updatedRoutineData = { ...routineData, semesters: remainingSemesters, schedule: remainingSchedule };
+
+    db.prepare(`
+      UPDATE routines
+      SET routine_data = ?, semester_id = ?, session_id = ?, updated_at = CURRENT_TIMESTAMP
+      WHERE id = ?
+    `).run(
+      JSON.stringify(updatedRoutineData),
+      firstRemaining?.semesterId || firstRemaining?.id || null,
+      firstRemaining?.sessionId || null,
+      routine.id
+    );
+
+    return res.json({
+      message: `${removed.length} completed semester${removed.length === 1 ? '' : 's'} removed from this routine.`,
+      removedCount: removed.length,
+      removedSemesterIds: [...removedIds],
+      routineData: updatedRoutineData
+    });
+  } catch (err) {
+    return res.status(500).json({ error: 'Failed to refresh routine semesters: ' + err.message });
+  }
+});
+
 router.get('/:id/teacher-workload', authenticateUser, (req, res) => {
   try {
     const routine = db.prepare('SELECT id, title, routine_data FROM routines WHERE id = ?').get(req.params.id);
@@ -1019,19 +1194,7 @@ router.get('/:id', authenticateUser, (req, res) => {
       return res.status(404).json({ error: 'Routine not found.' });
     }
 
-    let parsedData = {};
-    try {
-      parsedData = JSON.parse(routine.routine_data);
-    } catch (e) {
-      parsedData = {};
-    }
-
-    if (!Array.isArray(parsedData.semesters) || parsedData.semesters.length === 0) {
-      parsedData.semesters = loadFullSessionSemesters(routine.session_id);
-      try {
-        db.prepare('UPDATE routines SET routine_data = ? WHERE id = ?').run(JSON.stringify(parsedData), routine.id);
-      } catch (e) { /* ignore */ }
-    }
+    const parsedData = syncRoutineCalendarSemesters(routine);
 
     return res.json({
       routine: {
@@ -1098,9 +1261,9 @@ router.post('/', authenticateUser, (req, res) => {
   if (req.body.semesters !== undefined) parsedData.semesters = req.body.semesters;
   if (req.body.schedule !== undefined) parsedData.schedule = req.body.schedule;
 
-  if (!Array.isArray(parsedData.semesters) || parsedData.semesters.length === 0) {
-    parsedData.semesters = loadFullSessionSemesters(sessionId);
-  }
+  // An empty routine is valid. The user adds only running or upcoming
+  // calendar semesters through the routine semester selector.
+  if (!Array.isArray(parsedData.semesters)) parsedData.semesters = [];
 
   const routineType = type === 'EXAM_ROUTINE' ? 'EXAM_ROUTINE' : 'CLASS_ROUTINE';
   const routineId = 'rtn-' + crypto.randomUUID();

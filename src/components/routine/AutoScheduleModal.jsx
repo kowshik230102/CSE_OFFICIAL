@@ -30,7 +30,6 @@ export function AutoScheduleModal({
   const handleApply = onApplyGeneratedSchedule || onApplySchedule || (() => {});
 
   // Options
-  const [labHoursRatio, setLabHoursRatio] = useState(2.0); // 1.5 cr lab = 3 hours
   const [preserveUnlocked, setPreserveUnlocked] = useState(false); // keep existing unlocked or generate clean
   const [isGenerating, setIsGenerating] = useState(false);
   const [previewResult, setPreviewResult] = useState(null);
@@ -55,7 +54,6 @@ export function AutoScheduleModal({
           semesters,
           existingSlots: currentSchedule,
           options: {
-            labHoursRatio,
             preserveUnlocked
           }
         })
@@ -175,30 +173,13 @@ export function AutoScheduleModal({
             </h4>
 
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '1rem' }}>
-              {/* Rule 1: Lab Hours Ratio */}
+              {/* Rule 1: Fixed Credit-to-Hour Rule */}
               <div>
                 <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: 700, color: '#334155', marginBottom: '0.3rem' }}>
-                  Laboratory Contact Hours Ratio
+                  Credit-to-Hour Rule
                 </label>
-                <select
-                  value={labHoursRatio}
-                  onChange={(e) => setLabHoursRatio(parseFloat(e.target.value))}
-                  style={{
-                    width: '100%',
-                    padding: '0.5rem 0.75rem',
-                    borderRadius: '8px',
-                    border: '1px solid #cbd5e1',
-                    fontSize: '0.82rem',
-                    fontWeight: 600,
-                    background: '#ffffff'
-                  }}
-                >
-                  <option value={2.0}>1.5 Credits Lab = 3.0 Hours Contact Block (Standard)</option>
-                  <option value={1.5}>1.5 Credits Lab = 2.0 Hours Block</option>
-                  <option value={1.0}>1 Credit = 1 Hour Contact</option>
-                </select>
-                <div style={{ fontSize: '0.7rem', color: '#64748b', marginTop: '0.25rem' }}>
-                  Theory courses strictly follow 1 Credit = 1 Hour per week rule.
+                <div style={{ padding: '0.5rem 0.75rem', borderRadius: '8px', border: '1px solid #cbd5e1', fontSize: '0.82rem', fontWeight: 700, background: '#ffffff', color: '#1e3a8a' }}>
+                  Theory: 1 credit = 1 hour · Lab: one consecutive 3-hour block
                 </div>
               </div>
 

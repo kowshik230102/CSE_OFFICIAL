@@ -1,6 +1,5 @@
 import React, { useState } from 'react';
 import { 
-  Plus, 
   Search, 
   BookOpen, 
   Layers, 
@@ -9,7 +8,6 @@ import {
   Clock, 
   GripVertical, 
   CalendarPlus, 
-  Trash2, 
   CheckCircle2, 
   AlertCircle, 
   ChevronRight,
@@ -22,8 +20,6 @@ export function CourseDragPanel({
   semesters = [],
   selectedSemesterIndex = 0,
   onSelectSemesterIndex,
-  onOpenAddSemesterModal,
-  onRemoveSemester,
   onOpenTeacherModal,
   onOpenManualScheduleModal,
   currentSchedule = [],
@@ -35,6 +31,15 @@ export function CourseDragPanel({
 
   const activeSemester = semesters[selectedSemesterIndex] || semesters[0];
   const courses = activeSemester?.courses || [];
+  const normalizeCourseKey = (value) => String(value || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+  const slotMatchesCourse = (slot, course) => {
+    const courseIds = [course.courseId, course.id].filter(Boolean).map(String);
+    const slotIdMatches = slot.courseId && courseIds.includes(String(slot.courseId));
+    const codeMatches = normalizeCourseKey(slot.courseCode) && normalizeCourseKey(slot.courseCode) === normalizeCourseKey(course.courseCode);
+    const titleMatches = normalizeCourseKey(slot.courseTitle) && normalizeCourseKey(slot.courseTitle) === normalizeCourseKey(course.courseTitle);
+    const semesterMatches = !slot.semesterId || !activeSemester?.semesterId || String(slot.semesterId) === String(activeSemester.semesterId);
+    return semesterMatches && (slotIdMatches || codeMatches || titleMatches);
+  };
 
   // Filter courses strictly for the selected semester
   const filteredCourses = courses.filter(c => {
@@ -54,13 +59,7 @@ export function CourseDragPanel({
   // Calculate scheduled hours for a course from active routine's schedule
   const getCourseProgress = (course) => {
     const cid = course.courseId || course.id;
-    const slots = currentSchedule.filter(s => {
-      const matchCourse = 
-        (s.courseId && (s.courseId === cid || s.courseId === course.id || s.courseId === course.courseId)) ||
-        (s.courseCode && course.courseCode && s.courseCode.trim().toUpperCase() === course.courseCode.trim().toUpperCase());
-      const matchSem = !s.semesterId || !activeSemester?.semesterId || s.semesterId === activeSemester?.semesterId;
-      return matchCourse && matchSem;
-    });
+    const slots = currentSchedule.filter(slot => slotMatchesCourse(slot, course));
     const scheduledHours = slots.reduce((acc, s) => acc + (Number(s.span) || 1), 0);
     const requiredHours = Number(course.weeklyHours) || calculateWeeklyHours(course);
     const remainingHours = Math.max(0, requiredHours - scheduledHours);
@@ -106,27 +105,6 @@ export function CourseDragPanel({
             </h3>
           </div>
           
-          <button
-            type="button"
-            onClick={onOpenAddSemesterModal}
-            title="Add another semester to active routine"
-            style={{
-              background: 'linear-gradient(135deg, #6366f1 0%, #4f46e5 100%)',
-              color: '#ffffff',
-              border: 'none',
-              padding: '0.35rem 0.65rem',
-              borderRadius: '7px',
-              fontSize: '0.72rem',
-              fontWeight: 800,
-              cursor: 'pointer',
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: '0.25rem',
-              boxShadow: '0 2px 8px rgba(99, 102, 241, 0.4)'
-            }}
-          >
-            <Plus size={13} /> Add Semester
-          </button>
         </div>
 
         {/* Semester Selection Tabs / Pills */}
@@ -182,27 +160,6 @@ export function CourseDragPanel({
               </div>
             </div>
 
-            {semesters.length > 1 && (
-              <button
-                type="button"
-                title={`Remove ${activeSemester.shortTerm || 'semester'} from active routine`}
-                onClick={() => onRemoveSemester(selectedSemesterIndex)}
-                style={{
-                  background: 'rgba(239, 68, 68, 0.15)',
-                  border: '1px solid rgba(239, 68, 68, 0.4)',
-                  color: '#fca5a5',
-                  padding: '3px 6px',
-                  borderRadius: '5px',
-                  fontSize: '0.65rem',
-                  cursor: 'pointer',
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: '2px'
-                }}
-              >
-                <Trash2 size={11} /> Remove
-              </button>
-            )}
           </div>
         )}
       </div>
@@ -292,13 +249,11 @@ export function CourseDragPanel({
             <option value="AUTO">⚡ Auto-Assign (Conflict-Free)</option>
             <option value="501">Room 501</option>
             <option value="502">Room 502</option>
+            <option value="503">Room 503</option>
             <option value="504">Room 504</option>
-            <option value="R-504">Room R-504</option>
-            <option value="R-519">Room R-519</option>
             <option value="ACL">ACL (Lab)</option>
-            <option value="S/W Lab">S/W Lab</option>
-            <option value="Hardware Lab">Hardware Lab</option>
-            <option value="Robotics Lab">Robotics Lab</option>
+            <option value="S/W">S/W (Computer Lab)</option>
+            <option value="Network Lab">Network Lab (Hardware Lab)</option>
           </select>
         </div>
 

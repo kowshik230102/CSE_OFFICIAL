@@ -93,14 +93,11 @@ export const BREAK_PERIOD_ID = 'break';
 export const COMMON_ROOMS = [
   '501',
   '502',
+  '503',
   '504',
-  'R-504',
-  'R-519',
   'ACL',
-  'S/W Lab',
-  'Robotics Lab',
-  'Hardware Lab',
-  'Project'
+  'S/W',
+  'Network Lab'
 ];
 
 /**
@@ -154,8 +151,8 @@ export function getSlotTimeRangeLabel(startPeriodId, span = 1) {
 export function getAvailableRoom(day, periodId, span = 1, isLab = false, existingSchedule = [], preferredRoom = null) {
   const covered = getCoveredPeriodIds(periodId, span) || [periodId];
   
-  const theoryRooms = ['501', '502', '504', 'R-504', 'R-519'];
-  const labRooms = ['ACL', 'S/W Lab', 'H/W Lab', 'Network Lab', 'Robotics Lab'];
+  const theoryRooms = ['501', '502', '503', '504'];
+  const labRooms = ['ACL', 'S/W', 'Network Lab'];
   const candidateRooms = isLab 
     ? [...(preferredRoom ? [preferredRoom] : []), ...labRooms, ...theoryRooms]
     : [...(preferredRoom ? [preferredRoom] : []), ...theoryRooms, ...labRooms];
@@ -432,8 +429,7 @@ export function calculateWeeklyHours(course, options = {}) {
     (course.courseTitle && course.courseTitle.toLowerCase().includes('lab'));
   
   if (isLab) {
-    const ratio = options.labHoursRatio !== undefined ? Number(options.labHoursRatio) : 2.0;
-    return Math.max(1, Math.round(credit * ratio));
+    return 3;
   }
   return Math.max(1, Math.round(credit));
 }
@@ -450,8 +446,8 @@ export function generateSmartSchedule({ semesters = [], existingSlots = [], opti
   const preservedSlots = existingSlots.filter(s => s.isLocked || (preserveUnlocked && !s.isConflict));
   const newSchedule = [...preservedSlots];
 
-  const theoryRooms = ['501', '502', '504', 'R-504', 'R-519'];
-  const labRooms = ['ACL', 'S/W Lab', 'Robotics Lab', 'Hardware Lab'];
+  const theoryRooms = ['501', '502', '503', '504'];
+  const labRooms = ['ACL', 'S/W', 'Network Lab'];
 
   // Valid teaching periods for blocks:
   // Morning block: p1 (09:00), p2 (10:00), p3 (11:00), p4 (12:00)

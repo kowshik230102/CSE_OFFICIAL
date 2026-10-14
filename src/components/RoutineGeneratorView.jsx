@@ -144,10 +144,6 @@ export function RoutineGeneratorView({ user: propUser, onBackToDashboard, onNavi
   const [isSavingRoutine, setIsSavingRoutine] = useState(false);
   const [isPublishing, setIsPublishing] = useState(false);
 
-  // Academic Tree State (Sessions -> Semesters -> Courses & Students Count)
-  const [academicTree, setAcademicTree] = useState([]);
-  const [loadingAcademicTree, setLoadingAcademicTree] = useState(false);
-
   // Active Selected Semester Tab inside Routine
   const [selectedSemesterIndex, setSelectedSemesterIndex] = useState(0);
 
@@ -161,16 +157,10 @@ export function RoutineGeneratorView({ user: propUser, onBackToDashboard, onNavi
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [createForm, setCreateForm] = useState({
     title: '',
-    academicYear: 'Session 2026-2027',
     department: 'CSE',
     effectiveFrom: new Date().toISOString().split('T')[0]
   });
   const [creatingRoutine, setCreatingRoutine] = useState(false);
-
-  const [isAddSemesterModalOpen, setIsAddSemesterModalOpen] = useState(false);
-  const [selectedSessionForAdd, setSelectedSessionForAdd] = useState('');
-  const [selectedSemesterIdForAdd, setSelectedSemesterIdForAdd] = useState('');
-  const [addingSemester, setAddingSemester] = useState(false);
 
   const [isStudentModalOpen, setIsStudentModalOpen] = useState(false);
   const [studentSearchQuery, setStudentSearchQuery] = useState('');
@@ -226,7 +216,11 @@ export function RoutineGeneratorView({ user: propUser, onBackToDashboard, onNavi
   // Normalize single course object
   const normalizeCourse = (c) => {
     const credit = Number(c.creditHours || c.credit_hours || c.credit) || 3.0;
-    const weekly = Number(c.weeklyHours || c.weekly_hours) || calculateWeeklyHours(c);
+    const courseType = c.courseType || c.course_type || (c.courseTitle?.toLowerCase().includes('sessional') ? 'Sessional' : 'Theory');
+    const isLab = courseType === 'Sessional' || courseType === 'Lab' || /lab/i.test(c.courseTitle || c.course_title || '');
+    const weekly = isLab
+      ? calculateWeeklyHours({ ...c, creditHours: credit, courseType })
+      : (Number(c.weeklyHours || c.weekly_hours) || calculateWeeklyHours({ ...c, creditHours: credit, courseType }));
 
     let teacherObj = c.teacher;
     let status = c.assignmentStatus || 'Pending';
@@ -276,7 +270,7 @@ export function RoutineGeneratorView({ user: propUser, onBackToDashboard, onNavi
       courseTitle: c.courseTitle || c.course_title || '',
       creditHours: credit,
       weeklyHours: weekly,
-      courseType: c.courseType || c.course_type || (c.courseTitle?.toLowerCase().includes('sessional') ? 'Sessional' : 'Theory'),
+      courseType,
       assignmentStatus: status,
       lifecycle_status: c.lifecycle_status || 'ACTIVE',
       inRoutine: c.inRoutine !== false,
@@ -296,24 +290,6 @@ export function RoutineGeneratorView({ user: propUser, onBackToDashboard, onNavi
       console.error('Error fetching teachers:', err);
     } finally {
       setLoadingDeptTeachers(false);
-    }
-  };
-
-  const fetchAcademicTree = async () => {
-    setLoadingAcademicTree(true);
-    try {
-      const data = await safeFetchJson('/api/routines/meta/academic-tree');
-      const sessions = data.sessions || data.academicTree || [];
-      setAcademicTree(sessions);
-      if (sessions && sessions.length > 0) {
-        setSelectedSessionForAdd(sessions[0].id);
-        const firstSem = sessions[0].semesters?.[0];
-        if (firstSem) setSelectedSemesterIdForAdd(firstSem.id);
-      }
-    } catch (err) {
-      console.error('Error fetching academic tree:', err);
-    } finally {
-      setLoadingAcademicTree(false);
     }
   };
 
@@ -375,7 +351,6 @@ export function RoutineGeneratorView({ user: propUser, onBackToDashboard, onNavi
   useEffect(() => {
     const init = async () => {
       await fetchDeptTeachers();
-      await fetchAcademicTree();
       const active = await fetchActiveRoutine();
       const list = await fetchRoutinesList();
       if (!active && list && list.length > 0) {
@@ -444,13 +419,11 @@ export function RoutineGeneratorView({ user: propUser, onBackToDashboard, onNavi
       const payload = {
         title: createForm.title.trim(),
         department: createForm.department || 'CSE',
-        academicYear: createForm.academicYear,
         effectiveFrom: createForm.effectiveFrom,
         status: 'DRAFT',
         routineData: {
           routineName: createForm.title.trim(),
           department: createForm.department || 'CSE',
-          academicYear: createForm.academicYear,
           effectiveFrom: createForm.effectiveFrom,
           semesters: [],
           schedule: []
@@ -468,7 +441,6 @@ export function RoutineGeneratorView({ user: propUser, onBackToDashboard, onNavi
       
       setCreateForm({
         title: '',
-        academicYear: academicTree[0]?.sessionName || 'Session 2026-2027',
         department: 'CSE',
         effectiveFrom: new Date().toISOString().split('T')[0]
       });
@@ -486,94 +458,8 @@ export function RoutineGeneratorView({ user: propUser, onBackToDashboard, onNavi
     }
   };
 
-  // =========================================================================
-  // 3. SEMESTER MANAGEMENT (ADD, REMOVE, COPY)
-  // =========================================================================
-  const handleOpenAddSemesterModal = () => {
-    if (academicTree && academicTree.length > 0) {
-      const sess = academicTree.find(s => s.id === selectedSessionForAdd) || academicTree[0];
-      setSelectedSessionForAdd(sess.id);
-      if (sess.semesters && sess.semesters.length > 0) {
-        const existingIds = new Set((activeRoutine?.semesters || []).map(s => s.semesterId || s.id));
-        const available = sess.semesters.find(s => !existingIds.has(s.id));
-        setSelectedSemesterIdForAdd(available ? available.id : sess.semesters[0].id);
-      }
-    }
-    setIsAddSemesterModalOpen(true);
-  };
-
-  const handleAddSemesterSubmit = async (e) => {
-    e.preventDefault();
-    if (!selectedSemesterIdForAdd || !activeRoutine) {
-      showFeedback('error', 'Please select a semester.');
-      return;
-    }
-
-    const alreadyExists = (activeRoutine.semesters || []).some(s => (s.semesterId || s.id) === selectedSemesterIdForAdd);
-    if (alreadyExists) {
-      showFeedback('info', 'This semester is already in the routine. Switched to it.');
-      const existingIdx = activeRoutine.semesters.findIndex(s => (s.semesterId || s.id) === selectedSemesterIdForAdd);
-      if (existingIdx >= 0) setSelectedSemesterIndex(existingIdx);
-      setIsAddSemesterModalOpen(false);
-      return;
-    }
-
-    setAddingSemester(true);
-    try {
-      const detail = await safeFetchJson(`/api/routines/meta/semester/${selectedSemesterIdForAdd}`);
-      
-      const newSemesterEntry = {
-        semesterId: detail.semester.id,
-        semesterName: detail.semester.semesterName,
-        termCode: detail.semester.termCode,
-        shortTerm: detail.semester.shortTerm,
-        sessionId: detail.semester.sessionId,
-        sessionName: detail.semester.sessionName,
-        totalStudents: detail.totalStudents || 0,
-        excludedStudentIds: [],
-        studentsRoster: detail.students || [],
-        courses: (detail.courses || []).map(normalizeCourse)
-      };
-
-      const updatedSemesters = [...(activeRoutine.semesters || []), newSemesterEntry];
-      setActiveRoutine(prev => ({
-        ...prev,
-        semesters: updatedSemesters
-      }));
-
-      setSelectedSemesterIndex(updatedSemesters.length - 1);
-      setIsAddSemesterModalOpen(false);
-      showFeedback('success', `Added ${detail.semester.semesterName} with ${detail.courses?.length || 0} courses!`);
-    } catch (err) {
-      console.error('Error adding semester:', err);
-      showFeedback('error', 'Failed to add semester: ' + err.message);
-    } finally {
-      setAddingSemester(false);
-    }
-  };
-
-  const handleRemoveSemester = (indexToRemove) => {
-    if (!activeRoutine) return;
-    const semToRemove = activeRoutine.semesters[indexToRemove];
-    if (!window.confirm(`Are you sure you want to remove "${semToRemove.semesterName}" from this routine?`)) {
-      return;
-    }
-
-    const updated = activeRoutine.semesters.filter((_, idx) => idx !== indexToRemove);
-    // Also remove timetable slots for this semester
-    const updatedSchedule = (activeRoutine.schedule || []).filter(s => s.semesterId !== semToRemove.semesterId);
-
-    setActiveRoutine(prev => ({
-      ...prev,
-      semesters: updated,
-      schedule: updatedSchedule
-    }));
-
-    if (selectedSemesterIndex >= updated.length) {
-      setSelectedSemesterIndex(Math.max(0, updated.length - 1));
-    }
-    showFeedback('success', `Removed semester from routine.`);
-  };
+  // Running and upcoming semesters are synchronized automatically from the
+  // central academic calendar. They cannot be added or removed manually.
 
   // Copy Semester Configuration
   const handleConfirmCopySemester = async ({ sourceSemesterId, sourceSemesterName, includeTeachers, includeTimetable }) => {
@@ -670,6 +556,10 @@ export function RoutineGeneratorView({ user: propUser, onBackToDashboard, onNavi
 
   const handleSaveCourse = (savedCourse) => {
     if (!activeRoutine) return;
+    if (/viva/i.test(`${savedCourse?.courseCode || ''} ${savedCourse?.courseTitle || ''}`)) {
+      showFeedback('error', 'Viva courses are not included in the class routine.');
+      return;
+    }
     const currentSem = activeRoutine.semesters[selectedSemesterIndex];
     if (!currentSem) return;
 
@@ -1445,6 +1335,30 @@ export function RoutineGeneratorView({ user: propUser, onBackToDashboard, onNavi
     }
   };
 
+  const handleRefreshRoutine = async () => {
+    if (!activeRoutine) return;
+    setIsSavingRoutine(true);
+    try {
+      const result = await safeFetchJson(`/api/routines/${activeRoutine.id}/refresh-calendar-semesters`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' }
+      });
+      if (result.removedCount > 0) {
+        const updated = { ...activeRoutine, semesters: result.routineData.semesters || [], schedule: result.routineData.schedule || [], rawRoutineData: result.routineData };
+        setActiveRoutine(updated);
+        setOriginalRoutine(JSON.parse(JSON.stringify(updated)));
+        setSelectedSemesterIndex(0);
+      }
+      await fetchAcademicTree();
+      await fetchRoutinesList();
+      showFeedback('success', result.message);
+    } catch (err) {
+      showFeedback('error', 'Failed to refresh routine: ' + err.message);
+    } finally {
+      setIsSavingRoutine(false);
+    }
+  };
+
   const handleConfirmPublish = async ({ note, diff }) => {
     if (!activeRoutine) return;
     setIsPublishing(true);
@@ -1612,6 +1526,7 @@ export function RoutineGeneratorView({ user: propUser, onBackToDashboard, onNavi
     if (!activeRoutine || !Array.isArray(activeRoutine.semesters)) return {};
     const map = {};
     const schedule = activeRoutine.schedule || [];
+    const normalizeCourseKey = (value) => String(value || '').toLowerCase().replace(/[^a-z0-9]/g, '');
 
     activeRoutine.semesters.forEach(sem => {
       (sem.courses || []).forEach(c => {
@@ -1643,10 +1558,13 @@ export function RoutineGeneratorView({ user: propUser, onBackToDashboard, onNavi
 
         const hrs = Number(c.weeklyHours || c.creditHours || 3);
         const cid = c.courseId || c.id;
+        const semId = sem.semesterId || sem.id;
         const slots = schedule.filter(s => {
-          const matchCourse = (s.courseId && (s.courseId === cid || s.courseId === c.id || s.courseId === c.courseId)) ||
-            (s.courseCode && c.courseCode && s.courseCode.trim().toUpperCase() === c.courseCode.trim().toUpperCase());
-          return matchCourse;
+          const idMatch = s.courseId && [cid, c.id, c.courseId].filter(Boolean).map(String).includes(String(s.courseId));
+          const codeMatch = normalizeCourseKey(s.courseCode) && normalizeCourseKey(s.courseCode) === normalizeCourseKey(c.courseCode);
+          const titleMatch = normalizeCourseKey(s.courseTitle) && normalizeCourseKey(s.courseTitle) === normalizeCourseKey(c.courseTitle);
+          const semesterMatch = !s.semesterId || String(s.semesterId) === String(semId);
+          return semesterMatch && (idMatch || codeMatch || titleMatch);
         });
         const courseSchedHours = slots.reduce((acc, s) => acc + (Number(s.span) || 1), 0);
         const courseRemainingHours = Math.max(0, hrs - courseSchedHours);
@@ -1701,12 +1619,6 @@ export function RoutineGeneratorView({ user: propUser, onBackToDashboard, onNavi
 
   // Active semester for current tab
   const activeSemester = activeRoutine?.semesters[selectedSemesterIndex] || null;
-
-  // Semesters for add semester modal
-  const semestersForSelectedSession = useMemo(() => {
-    const sess = academicTree.find(s => s.id === selectedSessionForAdd);
-    return sess?.semesters || [];
-  }, [academicTree, selectedSessionForAdd]);
 
   return (
     <div className="routine-management-page" style={{ padding: '1.5rem', display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
@@ -2120,13 +2032,26 @@ export function RoutineGeneratorView({ user: propUser, onBackToDashboard, onNavi
                   )}
                 </div>
                 <div style={{ fontSize: '0.8rem', color: '#94a3b8', marginTop: '0.2rem' }}>
-                  {activeRoutine.academicYear} • {activeRoutine.department} Department • Effective: {activeRoutine.effectiveFrom || 'Current'}
+                  {activeRoutine.department} Department • Effective: {activeRoutine.effectiveFrom || 'Current'}
                 </div>
               </div>
             </div>
 
             {/* Builder Action Buttons */}
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem', flexWrap: 'wrap' }}>
+              <button
+                type="button"
+                onClick={handleRefreshRoutine}
+                disabled={isSavingRoutine}
+                style={{
+                  background: 'rgba(255, 255, 255, 0.1)', color: '#ffffff', border: '1px solid rgba(255, 255, 255, 0.2)',
+                  padding: '0.55rem 0.95rem', borderRadius: '10px', fontWeight: 700, fontSize: '0.82rem',
+                  display: 'inline-flex', alignItems: 'center', gap: '0.4rem', cursor: 'pointer'
+                }}
+                title="Remove completed calendar semesters from this routine"
+              >
+                <RefreshCw size={16} className={isSavingRoutine ? 'spin' : ''} /> Refresh Routine
+              </button>
               <button
                 type="button"
                 onClick={() => setIsAutoScheduleModalOpen(true)}
@@ -2310,28 +2235,6 @@ export function RoutineGeneratorView({ user: propUser, onBackToDashboard, onNavi
               </button>
             </div>
 
-            {/* Quick action buttons on tab bar */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-              <button
-                type="button"
-                onClick={handleOpenAddSemesterModal}
-                style={{
-                  background: '#f8fafc',
-                  border: '1px solid #cbd5e1',
-                  color: '#334155',
-                  padding: '0.45rem 0.85rem',
-                  borderRadius: '8px',
-                  fontSize: '0.78rem',
-                  fontWeight: 700,
-                  cursor: 'pointer',
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: '0.35rem'
-                }}
-              >
-                <Plus size={14} /> Add Semester
-              </button>
-            </div>
           </div>
 
           {/* ========================================================================= */}
@@ -2367,7 +2270,6 @@ export function RoutineGeneratorView({ user: propUser, onBackToDashboard, onNavi
                 }
               }}
               onOpenCopySemesterModal={() => setIsCopySemesterModalOpen(true)}
-              onAddSemesterModalOpen={handleOpenAddSemesterModal}
               onOpenStudentModal={() => setIsStudentModalOpen(true)}
             />
           )}
@@ -2388,8 +2290,6 @@ export function RoutineGeneratorView({ user: propUser, onBackToDashboard, onNavi
                 semesters={activeRoutine.semesters || []}
                 selectedSemesterIndex={selectedSemesterIndex}
                 onSelectSemesterIndex={setSelectedSemesterIndex}
-                onOpenAddSemesterModal={handleOpenAddSemesterModal}
-                onRemoveSemester={handleRemoveSemester}
                 onOpenTeacherModal={(semIdx, cIdx, course) => handleOpenTeacherModal(semIdx, cIdx, course)}
                 onOpenManualScheduleModal={(semId, courseId) => handleOpenManualScheduleModal(semId, courseId)}
                 currentSchedule={activeRoutine.schedule || []}
@@ -2496,7 +2396,7 @@ export function RoutineGeneratorView({ user: propUser, onBackToDashboard, onNavi
                       marginTop: '5px' 
                     }}
                   >
-                    <strong>Class Routine:</strong> {activeRoutine.title} • <strong>Session:</strong> {activeRoutine.academicYear} • <strong>Effective Date:</strong> {activeRoutine.effectiveFrom || 'Current'}
+                    <strong>Class Routine:</strong> {activeRoutine.title} • <strong>Effective Date:</strong> {activeRoutine.effectiveFrom || 'Current'}
                   </div>
                 </div>
 
@@ -2653,7 +2553,7 @@ export function RoutineGeneratorView({ user: propUser, onBackToDashboard, onNavi
                                   {dayObj.name}
                                 </td>
                                 <td colSpan={SCHEDULE_PERIODS.length + 1} style={{ padding: '1rem', textAlign: 'center', color: '#94a3b8', fontStyle: 'italic' }}>
-                                  No semesters added. Click "Add Semester" on the left panel.
+                                  No running or upcoming semesters are available in the academic calendar.
                                 </td>
                               </tr>
                             );
@@ -3194,20 +3094,6 @@ export function RoutineGeneratorView({ user: propUser, onBackToDashboard, onNavi
 
               <div>
                 <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 800, color: '#0f172a', marginBottom: '0.35rem' }}>
-                  Academic Session *
-                </label>
-                <input
-                  type="text"
-                  required
-                  placeholder="e.g. Session 2026-2027"
-                  value={createForm.academicYear}
-                  onChange={(e) => setCreateForm({ ...createForm, academicYear: e.target.value })}
-                  style={{ width: '100%', padding: '0.65rem 0.85rem', borderRadius: '10px', border: '1px solid #cbd5e1', fontSize: '0.85rem', boxSizing: 'border-box' }}
-                />
-              </div>
-
-              <div>
-                <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 800, color: '#0f172a', marginBottom: '0.35rem' }}>
                   Effective Date
                 </label>
                 <input
@@ -3240,7 +3126,7 @@ export function RoutineGeneratorView({ user: propUser, onBackToDashboard, onNavi
       )}
 
       {/* 8. ADD SEMESTER MODAL */}
-      {isAddSemesterModalOpen && (
+      {false && (
         <div 
           className="modal-backdrop-custom"
           style={{

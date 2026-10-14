@@ -294,8 +294,7 @@ function calculateWeeklyHours(course, options = {}) {
     (course.courseTitle && course.courseTitle.toLowerCase().includes('lab'));
   
   if (isLab) {
-    const ratio = options.labHoursRatio !== undefined ? Number(options.labHoursRatio) : 2.0;
-    return Math.max(1, Math.round(credit * ratio));
+    return 3;
   }
   return Math.max(1, Math.round(credit));
 }
@@ -305,15 +304,16 @@ function calculateWeeklyHours(course, options = {}) {
  * Generates non-conflicting time slots for all active courses across all semesters
  */
 function generateSmartSchedule({ semesters = [], existingSlots = [], options = {} }) {
-  const labHoursRatio = options.labHoursRatio !== undefined ? Number(options.labHoursRatio) : 2.0;
+  // Departmental rule: Theory = credit × 1 hour, Lab = credit × 2 hours.
+  const labHoursRatio = 2;
   const preserveUnlocked = Boolean(options.preserveUnlocked);
 
   // Separate locked slots vs replaceable slots
   const preservedSlots = existingSlots.filter(s => s.isLocked || (preserveUnlocked && !s.isConflict));
   const newSchedule = [...preservedSlots];
 
-  const theoryRooms = ['501', '502', '504', 'R-504', 'R-519'];
-  const labRooms = ['ACL', 'S/W Lab', 'Robotics Lab', 'Hardware Lab'];
+  const theoryRooms = ['501', '502', '503', '504'];
+  const labRooms = ['ACL', 'S/W', 'Network Lab'];
 
   // Valid teaching periods for blocks:
   // Morning block: p1 (09:00), p2 (10:00), p3 (11:00), p4 (12:00)
@@ -322,6 +322,81 @@ function generateSmartSchedule({ semesters = [], existingSlots = [], options = {
   const afternoonPeriods = ['p5', 'p6', 'p7'];
 
   const days = SCHEDULE_DAYS.map(d => d.name); // Saturday to Wednesday
+
+  const periodIndex = new Map(TEACHING_PERIOD_IDS.map((id, index) => [id, index]));
+  const slotPeriods = (slot) => slot.coveredPeriods || getCoveredPeriodIds(slot.periodId, slot.span || 1) || [];
+  const sameTeacher = (slot, teacher) => {
+    if (!teacher || !teacher.teacherName || teacher.teacherName === 'Not Assigned') return false;
+    return (teacher.teacherId && slot.teacherId && teacher.teacherId === slot.teacherId)
+      || (slot.teacherName && slot.teacherName !== 'Not Assigned'
+        && slot.teacherName.trim().toLowerCase() === teacher.teacherName.trim().toLowerCase());
+  };
+  const gapCount = (periodIds) => {
+    const indexes = [...new Set(periodIds.map(id => periodIndex.get(id)).filter(Number.isInteger))].sort((a, b) => a - b);
+    return indexes.reduce((gaps, index, position) => position === 0 ? 0 : gaps + Math.max(0, index - indexes[position - 1] - 1), 0);
+  };
+  const maxConsecutiveRun = (periodIds) => {
+    const indexes = [...new Set(periodIds.map(id => periodIndex.get(id)).filter(Number.isInteger))].sort((a, b) => a - b);
+    let maxRun = 0;
+    let run = 0;
+    indexes.forEach((index, position) => {
+      run = position > 0 && index === indexes[position - 1] + 1 ? run + 1 : 1;
+      maxRun = Math.max(maxRun, run);
+    });
+    return maxRun;
+  };
+  const dayLoad = (day) => newSchedule
+    .filter(slot => slot.day === day)
+    .reduce((hours, slot) => hours + (Number(slot.span) || 1), 0);
+  const earlyMorningPeriods = new Set(['p1', 'p2']);
+  const afternoonPeriodsSet = new Set(['p5', 'p6', 'p7']);
+  // Keep a predictable mixed weekly pattern: Sat/Mon/Wed are afternoon days,
+  // while Sun/Tue are morning days. This also leaves three preferred days for
+  // 3-hour lab blocks without turning every day into an afternoon routine.
+  const afternoonRoutineDays = new Set(['Saturday', 'Monday', 'Wednesday']);
+  const morningRoutineDays = new Set(['Sunday', 'Tuesday']);
+  const hasPeriodGroup = (day, targetPeriods) => newSchedule
+    .filter(slot => slot.day === day)
+    .flatMap(slotPeriods)
+    .some(periodId => targetPeriods.has(periodId));
+  const keepsDayCompact = (day, periodId, span) => {
+    const covered = getCoveredPeriodIds(periodId, span) || [];
+    const addsEarlyMorning = covered.some(id => earlyMorningPeriods.has(id));
+    const addsAfternoon = covered.some(id => afternoonPeriodsSet.has(id));
+    // Enforce the alternating weekly morning/afternoon pattern.
+    if (afternoonRoutineDays.has(day) && addsEarlyMorning) return false;
+    if (morningRoutineDays.has(day) && addsAfternoon) return false;
+    // A day with afternoon classes starts at 11:00 (p3); a morning-only
+    // day can begin at 09:00. This avoids students waiting through a long day.
+    if (addsAfternoon && hasPeriodGroup(day, earlyMorningPeriods)) return false;
+    if (addsEarlyMorning && hasPeriodGroup(day, afternoonPeriodsSet)) return false;
+    return true;
+  };
+  const candidateScore = ({ day, periodId, span, semesterId, teacher }) => {
+    const covered = getCoveredPeriodIds(periodId, span) || [];
+    const semesterPeriods = newSchedule
+      .filter(slot => slot.day === day && slot.semesterId === semesterId)
+      .flatMap(slotPeriods);
+    const teacherPeriods = newSchedule
+      .filter(slot => slot.day === day && sameTeacher(slot, teacher))
+      .flatMap(slotPeriods);
+
+    // Primary: spread the overall departmental load across all five days.
+    const balancePenalty = dayLoad(day) * 24;
+    // Students should not have long idle stretches between classes on a day.
+    const studentGapPenalty = gapCount([...semesterPeriods, ...covered]) * 14;
+    // A teacher may teach consecutive periods when necessary, but avoid long
+    // uninterrupted runs and prefer at least a small break where possible.
+    const teacherRun = maxConsecutiveRun([...teacherPeriods, ...covered]);
+    const teacherBreakPenalty = teacherRun > 2 ? (teacherRun - 2) * 18 : Math.max(0, teacherRun - 1) * 4;
+    const dayPeriods = newSchedule.filter(slot => slot.day === day).flatMap(slotPeriods);
+    const occupiedIndexes = [...dayPeriods, ...covered]
+      .map(id => periodIndex.get(id)).filter(Number.isInteger).sort((a, b) => a - b);
+    const footprintPenalty = occupiedIndexes.length > 1
+      ? (occupiedIndexes[occupiedIndexes.length - 1] - occupiedIndexes[0]) * 2
+      : 0;
+    return balancePenalty + studentGapPenalty + teacherBreakPenalty + footprintPenalty;
+  };
 
   const warnings = [];
   const courseProgress = {};
@@ -335,7 +410,8 @@ function generateSmartSchedule({ semesters = [], existingSlots = [], options = {
 
     for (const c of courses) {
       // Check if course is included and active
-      if (c.isIncluded === false || c.status === 'ARCHIVED' || c.status === 'COMPLETED') {
+      const isViva = /viva/i.test(`${c.courseCode || ''} ${c.courseTitle || ''}`);
+      if (c.isIncluded === false || c.status === 'ARCHIVED' || c.status === 'COMPLETED' || isViva) {
         continue;
       }
 
@@ -402,16 +478,27 @@ function generateSmartSchedule({ semesters = [], existingSlots = [], options = {
       const span = Math.min(3, hoursNeeded);
       let placed = false;
 
-      // Candidate start periods for lab: p1 (morning block: p1-p3) or p5 (afternoon block: p5-p7)
-      const labCandidateStarts = ['p1', 'p5', 'p2'];
+      // Prefer the afternoon block for labs; the fixed day pattern permits
+      // morning fallback only on Sunday and Tuesday when needed.
+      const labCandidateStarts = ['p5', 'p1', 'p2'];
 
-      for (const day of days) {
+      const rankedDays = [...days].sort((a, b) => {
+        const aIsAfternoonDay = afternoonRoutineDays.has(a);
+        const bIsAfternoonDay = afternoonRoutineDays.has(b);
+        if (aIsAfternoonDay !== bIsAfternoonDay) return aIsAfternoonDay ? -1 : 1;
+        return dayLoad(a) - dayLoad(b) || days.indexOf(a) - days.indexOf(b);
+      });
+      for (const day of rankedDays) {
         if (placed) break;
-        for (const startPid of labCandidateStarts) {
+        const rankedStarts = [...labCandidateStarts].sort((a, b) =>
+          candidateScore({ day, periodId: a, span, semesterId: item.semesterId, teacher: item.teacher })
+          - candidateScore({ day, periodId: b, span, semesterId: item.semesterId, teacher: item.teacher })
+        );
+        for (const startPid of rankedStarts) {
           if (placed) break;
           // Verify covered periods don't hit break
           const covered = getCoveredPeriodIds(startPid, span);
-          if (!covered) continue;
+          if (!covered || !keepsDayCompact(day, startPid, span)) continue;
 
           for (const room of item.preferredRooms) {
             const candidate = {
@@ -451,7 +538,8 @@ function generateSmartSchedule({ semesters = [], existingSlots = [], options = {
         warnings.push(`Could not automatically find an open 3-hour lab block for ${item.courseCode} (${item.termCode}). Please assign manually.`);
       }
     } else {
-      // Theory courses: break into 1-hour or 2-hour sessions across different days
+      // Theory courses are compact blocks: a 3-credit course becomes a
+      // consecutive 2-hour class plus a separate 1-hour class.
       const daysUsedForThisCourse = new Set(
         newSchedule
           .filter(s => s.courseId === item.courseId && s.semesterId === item.semesterId)
@@ -461,23 +549,30 @@ function generateSmartSchedule({ semesters = [], existingSlots = [], options = {
       // Try 1-hour slots across days
       while (hoursNeeded > 0) {
         let placedThisUnit = false;
-        const span = 1;
+        const span = hoursNeeded >= 2 ? 2 : 1;
 
         // Try days that haven't been used yet for this course first
         const dayCandidates = [...days].sort((d1, d2) => {
           const u1 = daysUsedForThisCourse.has(d1) ? 1 : 0;
           const u2 = daysUsedForThisCourse.has(d2) ? 1 : 0;
-          return u1 - u2;
+          return u1 - u2 || dayLoad(d1) - dayLoad(d2) || days.indexOf(d1) - days.indexOf(d2);
         });
 
-        const periodCandidates = ['p1', 'p2', 'p3', 'p4', 'p5', 'p6', 'p7'];
+        const periodCandidates = [...TEACHING_PERIOD_IDS].sort((a, b) =>
+          candidateScore({ day: dayCandidates[0], periodId: a, span, semesterId: item.semesterId, teacher: item.teacher })
+          - candidateScore({ day: dayCandidates[0], periodId: b, span, semesterId: item.semesterId, teacher: item.teacher })
+        );
 
         for (const day of dayCandidates) {
           if (placedThisUnit) break;
-          for (const pid of periodCandidates) {
+          const rankedPeriodsForDay = [...periodCandidates].sort((a, b) =>
+            candidateScore({ day, periodId: a, span, semesterId: item.semesterId, teacher: item.teacher })
+            - candidateScore({ day, periodId: b, span, semesterId: item.semesterId, teacher: item.teacher })
+          );
+          for (const pid of rankedPeriodsForDay) {
             if (placedThisUnit) break;
             const covered = getCoveredPeriodIds(pid, span);
-            if (!covered) continue;
+            if (!covered || !keepsDayCompact(day, pid, span)) continue;
 
             for (const room of item.preferredRooms) {
               const candidate = {
@@ -530,7 +625,8 @@ function generateSmartSchedule({ semesters = [], existingSlots = [], options = {
     const semId = sem.semesterId || sem.id;
     const courses = Array.isArray(sem.courses) ? sem.courses : [];
     for (const c of courses) {
-      if (c.isIncluded === false || c.status === 'ARCHIVED' || c.status === 'COMPLETED') continue;
+      if (c.isIncluded === false || c.status === 'ARCHIVED' || c.status === 'COMPLETED'
+        || /viva/i.test(`${c.courseCode || ''} ${c.courseTitle || ''}`)) continue;
       const req = calculateWeeklyHours(c, { labHoursRatio });
       const sched = newSchedule
         .filter(s => s.courseId === (c.courseId || c.id) && s.semesterId === semId)
@@ -640,8 +736,8 @@ function diffRoutines(oldData = {}, newData = {}) {
 
 function getAvailableRoom(day, periodId, span = 1, isLab = false, existingSchedule = [], preferredRoom = null) {
   const covered = getCoveredPeriodIds(periodId, span) || [periodId];
-  const theoryRooms = ['501', '502', '504', 'R-504', 'R-519'];
-  const labRooms = ['ACL', 'S/W Lab', 'H/W Lab', 'Network Lab', 'Robotics Lab'];
+  const theoryRooms = ['501', '502', '503', '504'];
+  const labRooms = ['ACL', 'S/W', 'Network Lab'];
   const candidateRooms = isLab 
     ? [...(preferredRoom ? [preferredRoom] : []), ...labRooms, ...theoryRooms]
     : [...(preferredRoom ? [preferredRoom] : []), ...theoryRooms, ...labRooms];
