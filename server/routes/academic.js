@@ -123,11 +123,13 @@ function getCalendarMetrics(semester, today = new Date()) {
 
 // Get all sessions
 router.get('/sessions', authenticateUser, (req, res) => {
+  const studentInfoOnly = String(req.query.studentInfoOnly || '') === '1';
   const sessions = db.prepare(`
     SELECT s.*, 
            (SELECT COUNT(*) FROM students WHERE current_session_id = s.id) as student_count,
            (SELECT COUNT(*) FROM semesters WHERE session_id = s.id) as semester_count
     FROM academic_sessions s
+    ${studentInfoOnly ? 'WHERE s.student_info_enabled = 1' : ''}
     ORDER BY s.start_date DESC
   `).all();
   return res.json({ sessions });
@@ -136,12 +138,13 @@ router.get('/sessions', authenticateUser, (req, res) => {
 // Create a new session (Chairman / Office Staff / Admin)
 router.post('/sessions', authenticateUser, requireAcademicAuthority, (req, res) => {
   const sessionName = (req.body.sessionName || req.body.session_name || '').trim();
-  const startDate = req.body.startDate || req.body.start_date || new Date().toISOString().split('T')[0];
+  const startDate = req.body.startDate || req.body.start_date;
   const endDate = req.body.endDate || req.body.end_date || null;
   const isCurrent = Boolean(req.body.isCurrent || req.body.is_current);
+  const studentInfoEnabled = Boolean(req.body.studentInfoEnabled);
 
-  if (!sessionName) {
-    return res.status(400).json({ error: 'Session name is required.' });
+  if (!sessionName || !startDate) {
+    return res.status(400).json({ error: 'Session name and start date are required.' });
   }
 
   const existing = db.prepare('SELECT id FROM academic_sessions WHERE session_name = ?').get(sessionName);
@@ -156,36 +159,16 @@ router.post('/sessions', authenticateUser, requireAcademicAuthority, (req, res) 
       db.prepare('UPDATE academic_sessions SET is_current = 0').run();
     }
     db.prepare(`
-      INSERT INTO academic_sessions (id, session_name, start_date, end_date, is_current)
-      VALUES (?, ?, ?, ?, ?)
-    `).run(sessionId, sessionName, startDate, endDate || null, isCurrent ? 1 : 0);
+      INSERT INTO academic_sessions (id, session_name, start_date, end_date, is_current, student_info_enabled)
+      VALUES (?, ?, ?, ?, ?, ?)
+    `).run(sessionId, sessionName, startDate, endDate || null, isCurrent ? 1 : 0, studentInfoEnabled ? 1 : 0);
 
-    // Auto pre-populate 8 standard CSE semesters (Y1S1 to Y4S2) for convenience
-    const standardSemesters = [
-      { name: '1st Year 1st Semester', code: 'Y1S1', active: 1 },
-      { name: '1st Year 2nd Semester', code: 'Y1S2', active: 0 },
-      { name: '2nd Year 1st Semester', code: 'Y2S1', active: 0 },
-      { name: '2nd Year 2nd Semester', code: 'Y2S2', active: 0 },
-      { name: '3rd Year 1st Semester', code: 'Y3S1', active: 0 },
-      { name: '3rd Year 2nd Semester', code: 'Y3S2', active: 0 },
-      { name: '4th Year 1st Semester', code: 'Y4S1', active: 0 },
-      { name: '4th Year 2nd Semester', code: 'Y4S2', active: 0 },
-    ];
-
-    const insertSem = db.prepare(`
-      INSERT INTO semesters (id, session_id, semester_name, term_code, is_active)
-      VALUES (?, ?, ?, ?, ?)
-    `);
-
-    for (const sem of standardSemesters) {
-      insertSem.run('sem-' + crypto.randomUUID(), sessionId, sem.name, sem.code, sem.active);
-    }
   });
 
   try {
     transaction();
     return res.status(201).json({
-      message: `Session '${sessionName}' created with standard 8 semesters successfully!`,
+      message: `Session '${sessionName}' created successfully.`,
       sessionId,
       session: {
         session_id: sessionId,

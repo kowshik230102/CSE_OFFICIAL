@@ -340,6 +340,10 @@ function initializeDatabase() {
     try { db.exec(q); } catch (e) { /* Column already exists */ }
   }
 
+  try {
+    db.exec(`ALTER TABLE academic_sessions ADD COLUMN student_info_enabled INTEGER DEFAULT 0`);
+  } catch (e) { /* Column already exists */ }
+
   // 14. ROUTINE VERSIONS & AUDIT LOG TABLE
   db.exec(`
     CREATE TABLE IF NOT EXISTS routine_versions (
