@@ -426,6 +426,27 @@ function initializeDatabase() {
     CREATE INDEX IF NOT EXISTS idx_assessment_audit_logs_course ON assessment_audit_logs(course_id, created_at DESC);
     CREATE INDEX IF NOT EXISTS idx_assessment_audit_logs_sem ON assessment_audit_logs(semester_id, created_at DESC);
 
+    -- Calendar-aware assessment records.  A course may be taught to more than
+    -- one calendar batch, so its marks must be scoped to the running calendar
+    -- semester instead of the reusable syllabus course alone.
+    CREATE TABLE IF NOT EXISTS regular_assessment_marks (
+      id TEXT PRIMARY KEY,
+      calendar_semester_id TEXT NOT NULL REFERENCES semesters(id) ON DELETE CASCADE,
+      course_id TEXT NOT NULL REFERENCES courses(id) ON DELETE CASCADE,
+      student_id TEXT NOT NULL REFERENCES students(id) ON DELETE CASCADE,
+      ct1 REAL,
+      ct2 REAL,
+      ct3 REAL,
+      attendance REAL,
+      final_marks REAL,
+      updated_by TEXT REFERENCES users(id) ON DELETE SET NULL,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE(calendar_semester_id, course_id, student_id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_regular_assessment_scope
+      ON regular_assessment_marks(calendar_semester_id, course_id, student_id);
+
     -- Course content entries are maintained separately from the legacy general syllabus text.
     -- This keeps a structured CO-wise outline without losing existing course information.
     CREATE TABLE IF NOT EXISTS course_outline_entries (
@@ -847,17 +868,17 @@ function ensureUniversityCTMarks() {
 function ensureChairmanAccount() {
   try {
     const existing = db.prepare('SELECT id FROM users WHERE email = ?').get('chair.cse_pust@gmail.com');
-    const passHash = bcrypt.hashSync('12345678', 10);
     let userId = 'u-chair';
 
     if (existing) {
       userId = existing.id;
       db.prepare(`
         UPDATE users 
-        SET password_hash = ?, first_name = 'Dr. Abdur', last_name = 'Rahim', role = 'TEACHER', status = 'ACTIVE'
+        SET first_name = 'Dr. Abdur', last_name = 'Rahim', role = 'TEACHER', status = 'ACTIVE'
         WHERE id = ?
-      `).run(passHash, userId);
+      `).run(userId);
     } else {
+      const passHash = bcrypt.hashSync('Teacher@123', 10);
       db.prepare(`
         INSERT INTO users (id, email, password_hash, role, status, first_name, last_name, phone_number)
         VALUES (?, 'chair.cse_pust@gmail.com', ?, 'TEACHER', 'ACTIVE', 'Dr. Abdur', 'Rahim', '+8801711223344')

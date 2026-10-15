@@ -212,7 +212,11 @@ export const CollapsibleSidebar = ({
               Core Workspace
             </div>
 
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
+            {user?.role === 'OFFICE_STAFF' ? (
+              <div style={{ padding: '1rem', borderRadius: '10px', background: 'rgba(124,58,237,.1)', border: '1px solid rgba(167,139,250,.22)', color: '#c4b5fd', fontSize: '.8rem', lineHeight: 1.55 }}>
+                This account has no academic workspace access. You may change the temporary password from the account section below.
+              </div>
+            ) : <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
               <button
                 onClick={() => handleNavClick('dashboard')}
                 className={`sidebar-nav-btn ${activeNavTab === 'dashboard' ? 'active' : ''}`}
@@ -420,7 +424,7 @@ export const CollapsibleSidebar = ({
                   </button>
                 </>
               )}
-            </div>
+            </div>}
           </div>
 
           {/* Account & System Preferences */}

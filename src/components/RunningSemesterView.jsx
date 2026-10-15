@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { CalendarDays, CheckCircle, Clock3, Pencil, Plus, RefreshCw, CalendarClock } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 
-const emptyForm = { sessionName: '', year: '', semester: '', startDate: '', endDate: '' };
+const emptyForm = { sessionId: '', year: '', semester: '', startDate: '', endDate: '' };
 
 const formatDate = (value) => value ? new Date(`${value}T00:00:00`).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' }) : '—';
 const bySession = (semesters) => Object.entries(semesters.reduce((groups, semester) => {
@@ -44,6 +44,7 @@ function CalendarCard({ semester, onEdit, recent = false }) {
 export function RunningSemesterView() {
   const { token } = useAuth();
   const [calendar, setCalendar] = useState({ running: [], recent: [], upcoming: [] });
+  const [studentInfoSessions, setStudentInfoSessions] = useState([]);
   const [form, setForm] = useState(emptyForm);
   const [editingId, setEditingId] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -54,10 +55,16 @@ export function RunningSemesterView() {
   const load = async () => {
     setLoading(true);
     try {
-      const calendarRes = await fetch('/api/academic/running-semesters', { headers });
+      const [calendarRes, sessionsRes] = await Promise.all([
+        fetch('/api/academic/running-semesters', { headers }),
+        fetch('/api/academic/sessions?studentInfoOnly=1', { headers })
+      ]);
       const calendarData = await calendarRes.json();
+      const sessionsData = await sessionsRes.json();
       if (!calendarRes.ok) throw new Error(calendarData.error || 'Could not load the academic calendar.');
+      if (!sessionsRes.ok) throw new Error(sessionsData.error || 'Could not load Student Information sessions.');
       setCalendar({ running: calendarData.running || [], recent: calendarData.recent || [], upcoming: calendarData.upcoming || [] });
+      setStudentInfoSessions(sessionsData.sessions || []);
     } catch (error) {
       setMessage({ type: 'error', text: error.message });
     } finally { setLoading(false); }
@@ -68,7 +75,7 @@ export function RunningSemesterView() {
   const edit = (semester) => {
     const nameParts = semester.semester_name.match(/^(.*?) Year (.*?) Semester$/i);
     setEditingId(semester.id);
-    setForm({ sessionName: semester.session_name, year: semester.year || nameParts?.[1] || '', semester: semester.semester || nameParts?.[2] || '', startDate: semester.start_date, endDate: semester.end_date || '' });
+    setForm({ sessionId: semester.session_id, year: semester.year || nameParts?.[1] || '', semester: semester.semester || nameParts?.[2] || '', startDate: semester.start_date, endDate: semester.end_date || '' });
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
   const reset = () => { setEditingId(null); setForm(emptyForm); };
@@ -89,13 +96,13 @@ export function RunningSemesterView() {
       </div>
       <form onSubmit={submit}>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))', gap: '.9rem' }}>
-          <label className="form-group"><span className="form-label">Academic Session</span><input required name="sessionName" value={form.sessionName} onChange={change} className="form-input" placeholder="e.g. Session 2026-2027" /></label>
+          <label className="form-group"><span className="form-label">Academic Session</span><select required name="sessionId" value={form.sessionId} onChange={change} className="form-input"><option value="">Select Student Information session</option>{studentInfoSessions.map(session => <option key={session.id} value={session.id}>{session.session_name}</option>)}</select></label>
           <label className="form-group"><span className="form-label">Year</span><input required name="year" value={form.year} onChange={change} className="form-input" placeholder="e.g. 3rd" /></label>
           <label className="form-group"><span className="form-label">Semester</span><input required name="semester" value={form.semester} onChange={change} className="form-input" placeholder="e.g. 1st" /></label>
           <label className="form-group"><span className="form-label">Semester Start Date</span><input required type="date" name="startDate" value={form.startDate} onChange={change} className="form-input" /></label>
           <label className="form-group"><span className="form-label">Semester End Date <span style={{ color: 'var(--text-muted)', fontWeight: 400 }}>(optional)</span></span><input type="date" name="endDate" value={form.endDate} onChange={change} className="form-input" /></label>
         </div>
-        <div style={{ marginTop: '1rem', display: 'flex', justifyContent: 'flex-end' }}><button disabled={saving} className="btn btn-primary">{editingId ? <Pencil size={16} /> : <Plus size={16} />}{saving ? 'Saving…' : editingId ? 'Save Changes' : 'Add New Semester'}</button></div>
+        <div style={{ marginTop: '1rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '.75rem', flexWrap: 'wrap' }}><span style={{ color: 'var(--text-muted)', fontSize: '.78rem' }}>{studentInfoSessions.length ? 'Only sessions created in Student Information can be selected.' : 'Create the session in Student Information first.'}</span><button disabled={saving || studentInfoSessions.length === 0} className="btn btn-primary">{editingId ? <Pencil size={16} /> : <Plus size={16} />}{saving ? 'Saving…' : editingId ? 'Save Changes' : 'Add New Semester'}</button></div>
       </form>
     </div>
     {message && <div style={{ padding: '.75rem 1rem', borderRadius: '8px', color: message.type === 'success' ? 'var(--success-text)' : 'var(--danger-text)', background: message.type === 'success' ? 'var(--success-bg)' : 'var(--danger-bg)' }}>{message.text}</div>}

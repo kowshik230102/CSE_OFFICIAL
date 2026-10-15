@@ -35,8 +35,8 @@ export function CourseInfoView({ user, onBackToDashboard }) {
   const [typeFilter, setTypeFilter] = useState('ALL'); // 'ALL' | 'Theory' | 'Sessional' | 'Viva' | 'Elective'
   const [copiedCode, setCopiedCode] = useState(null);
 
-  // Add Course Modal (For Teachers, Office Staff, Admin)
-  const isFacultyOrAdmin = user?.role === 'TEACHER' || user?.role === 'OFFICE_STAFF' || user?.role === 'ADMIN';
+  // Course Information is central master data and is editable by Admin only.
+  const isFacultyOrAdmin = user?.role === 'ADMIN';
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [addFeedback, setAddFeedback] = useState(null);
   const [submittingCourse, setSubmittingCourse] = useState(false);

@@ -9,6 +9,7 @@ const {
   SCHEDULE_PERIODS,
   TEACHING_PERIOD_IDS,
   BREAK_PERIOD_ID,
+  getSlotTimeRangeLabel,
   checkSlotConflict,
   validateEntireSchedule,
   calculateWeeklyHours,
@@ -174,6 +175,7 @@ function loadCalendarRoutineSemesters() {
       FROM semesters sem
       JOIN academic_sessions s ON s.id = sem.session_id
       WHERE sem.term_code LIKE 'CAL-%'
+        AND (s.student_info_enabled = 1 OR EXISTS (SELECT 1 FROM students st WHERE st.current_session_id = s.id))
         AND (COALESCE(sem.class_end_date, sem.end_date) IS NULL
           OR date(COALESCE(sem.class_end_date, sem.end_date)) >= date('now', 'localtime'))
       ORDER BY s.session_name ASC, sem.start_date ASC, sem.created_at ASC
@@ -302,6 +304,55 @@ function syncRoutineCalendarSemesters(routine) {
   return syncedData;
 }
 
+// A date-only helper is used here so the class count does not shift with the
+// server timezone.  A timetable slot represents one class meeting, even when
+// it spans multiple hours (for example, a three-hour lab).
+function dateFromKey(value) {
+  const [year, month, day] = String(value || '').split('-').map(Number);
+  return Number.isFinite(year) && Number.isFinite(month) && Number.isFinite(day)
+    ? new Date(year, month - 1, day)
+    : null;
+}
+
+function dateKey(value) {
+  const year = value.getFullYear();
+  const month = String(value.getMonth() + 1).padStart(2, '0');
+  const day = String(value.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+function countScheduledMeetings(days, startDate, endDate, today) {
+  const wantedDays = new Set(days.filter(Boolean));
+  const start = dateFromKey(startDate);
+  const end = dateFromKey(endDate);
+  const now = dateFromKey(today);
+  if (!wantedDays.size || !start || !end || !now) return { count: null, nextDate: null };
+
+  const cursor = start > now ? start : now;
+  let count = 0;
+  let nextDate = null;
+  for (const date = new Date(cursor); date <= end; date.setDate(date.getDate() + 1)) {
+    if (!wantedDays.has(SCHEDULE_DAYS.find(item => item.name === date.toLocaleDateString('en-US', { weekday: 'long' }))?.name)) continue;
+    count += 1;
+    if (!nextDate) nextDate = dateKey(date);
+  }
+  return { count, nextDate };
+}
+
+function getLatestRoutineForTeacherDashboard() {
+  return db.prepare(`
+    SELECT * FROM routines
+    WHERE type = 'CLASS_ROUTINE' AND (is_active = 1 OR status = 'PUBLISHED')
+    ORDER BY is_active DESC, updated_at DESC
+    LIMIT 1
+  `).get() || db.prepare(`
+    SELECT * FROM routines
+    WHERE type = 'CLASS_ROUTINE'
+    ORDER BY updated_at DESC
+    LIMIT 1
+  `).get();
+}
+
 // 0. GET ALL DEPARTMENT FACULTY TEACHERS (Meta for Teacher Assignment)
 router.get('/meta/teachers', authenticateUser, (req, res) => {
   try {
@@ -383,7 +434,8 @@ router.get('/meta/academic-tree', authenticateUser, (req, res) => {
     const sessions = db.prepare(`
       SELECT id, session_name, start_date, end_date, is_current
       FROM academic_sessions s
-      WHERE EXISTS (
+      WHERE (s.student_info_enabled = 1 OR EXISTS (SELECT 1 FROM students st WHERE st.current_session_id = s.id))
+        AND EXISTS (
         SELECT 1 FROM semesters sem
         WHERE sem.session_id = s.id
           AND sem.term_code LIKE 'CAL-%'
@@ -663,8 +715,82 @@ router.get('/active', authenticateUser, (req, res) => {
   }
 });
 
+// Teacher dashboard: course assignments are read from the same live routine
+// that powers the timetable, never from a separate or hardcoded course list.
+router.get('/my-running-courses', authenticateUser, requireRoles(['TEACHER']), (req, res) => {
+  try {
+    if (!req.user.teacherId) {
+      return res.json({ courses: [], generatedAt: new Date().toISOString() });
+    }
+
+    const routine = getLatestRoutineForTeacherDashboard();
+    if (!routine) return res.json({ courses: [], generatedAt: new Date().toISOString() });
+
+    const routineData = syncRoutineCalendarSemesters(routine);
+    const today = dateKey(new Date());
+    const runningSemesters = db.prepare(`
+      SELECT sem.id, sem.session_id, sem.semester_name, sem.start_date,
+             COALESCE(sem.class_end_date, sem.end_date) AS class_end_date,
+             sess.session_name
+      FROM semesters sem
+      JOIN academic_sessions sess ON sess.id = sem.session_id
+      WHERE sem.term_code LIKE 'CAL-%'
+        AND (sess.student_info_enabled = 1 OR EXISTS (SELECT 1 FROM students st WHERE st.current_session_id = sess.id))
+        AND date(sem.start_date) <= date(?)
+        AND (COALESCE(sem.class_end_date, sem.end_date) IS NULL
+             OR date(COALESCE(sem.class_end_date, sem.end_date)) >= date(?))
+    `).all(today, today);
+    const calendarById = new Map(runningSemesters.map(semester => [semester.id, semester]));
+    const allSlots = Array.isArray(routineData.schedule) ? routineData.schedule : [];
+    const courses = [];
+
+    for (const semester of Array.isArray(routineData.semesters) ? routineData.semesters : []) {
+      const calendar = calendarById.get(semester.semesterId || semester.id);
+      if (!calendar) continue;
+      for (const course of Array.isArray(semester.courses) ? semester.courses : []) {
+        const teacher = course.teacher || {};
+        if (course.isIncluded === false || course.status === 'ARCHIVED' || course.status === 'COMPLETED'
+          || teacher.type !== 'department' || teacher.teacherId !== req.user.teacherId || isVivaCourse(course)) continue;
+
+        const courseId = course.courseId || course.id;
+        const slots = allSlots.filter(slot => slot.semesterId === calendar.id && slot.courseId === courseId);
+        const days = [...new Set(slots.map(slot => slot.day).filter(Boolean))];
+        const meetingInfo = countScheduledMeetings(days, calendar.start_date, calendar.class_end_date, today);
+        const nextSlots = slots
+          .filter(slot => !meetingInfo.nextDate || slot.day === SCHEDULE_DAYS.find(item => item.name === dateFromKey(meetingInfo.nextDate)?.toLocaleDateString('en-US', { weekday: 'long' }))?.name)
+          .map(slot => ({ day: slot.day, time: getSlotTimeRangeLabel(slot.periodId, Number(slot.span) || 1), room: slot.room || '' }));
+        const calendarEnd = dateFromKey(calendar.class_end_date);
+        const remainingDays = calendarEnd ? Math.max(0, Math.ceil((calendarEnd - dateFromKey(today)) / 86400000)) : null;
+
+        courses.push({
+          sessionId: calendar.session_id,
+          sessionName: calendar.session_name,
+          semesterId: calendar.id,
+          semesterName: calendar.semester_name,
+          courseId,
+          courseCode: course.courseCode || course.course_code || '',
+          courseTitle: course.courseTitle || course.course_title || '',
+          courseType: course.courseType || course.course_type || 'Theory',
+          creditHours: Number(course.creditHours ?? course.credit_hours ?? 0),
+          classEndDate: calendar.class_end_date || null,
+          remainingDays,
+          remainingMeetings: meetingInfo.count,
+          routineDays: days,
+          weeklyMeetings: slots.length,
+          nextClasses: nextSlots
+        });
+      }
+    }
+
+    courses.sort((a, b) => String(a.classEndDate || '9999-12-31').localeCompare(String(b.classEndDate || '9999-12-31')) || a.courseCode.localeCompare(b.courseCode));
+    return res.json({ courses, generatedAt: new Date().toISOString() });
+  } catch (err) {
+    return res.status(500).json({ error: `Unable to load the teacher's running routine courses: ${err.message}` });
+  }
+});
+
 // 2.6 SMART AUTOMATIC TIMETABLE GENERATION
-router.post('/auto-generate', authenticateUser, (req, res) => {
+router.post('/auto-generate', authenticateUser, requireRoles(['ADMIN']), (req, res) => {
   try {
     const { semesters, existingSlots, options } = req.body;
     const result = generateSmartSchedule({
@@ -693,7 +819,7 @@ router.get('/non-dept-teachers', authenticateUser, (req, res) => {
 });
 
 // 2.8 SAVE OR UPDATE NON-DEPARTMENT TEACHER RECORD
-router.post('/non-dept-teachers', authenticateUser, (req, res) => {
+router.post('/non-dept-teachers', authenticateUser, requireRoles(['ADMIN']), (req, res) => {
   try {
     const { name, department, phoneNumber, designation, email } = req.body;
     if (!name || !name.trim() || !department || !department.trim()) {
@@ -744,7 +870,7 @@ router.post('/non-dept-teachers', authenticateUser, (req, res) => {
 });
 
 // 2.9 SYNCHRONIZE TEACHER PROFILES FROM ROUTINE ASSIGNMENTS
-router.post('/sync-teachers', authenticateUser, (req, res) => {
+router.post('/sync-teachers', authenticateUser, requireRoles(['ADMIN']), (req, res) => {
   try {
     const { routineId, semesters, schedule } = req.body;
     if (!Array.isArray(semesters)) {
@@ -860,7 +986,7 @@ router.post('/sync-teachers', authenticateUser, (req, res) => {
 });
 
 // 2.95 COURSE LIFECYCLE STATUS (ACTIVE, COMPLETED, ARCHIVED)
-router.patch('/courses/:courseId/status', authenticateUser, (req, res) => {
+router.patch('/courses/:courseId/status', authenticateUser, requireRoles(['ADMIN']), (req, res) => {
   try {
     const { status } = req.body;
     if (!['ACTIVE', 'COMPLETED', 'ARCHIVED'].includes(status)) {
@@ -884,7 +1010,7 @@ router.patch('/courses/:courseId/status', authenticateUser, (req, res) => {
 });
 
 // 2.96 COPY SEMESTER CONFIGURATION (Courses, Teachers, Timetable)
-router.post('/copy-semester', authenticateUser, (req, res) => {
+router.post('/copy-semester', authenticateUser, requireRoles(['ADMIN']), (req, res) => {
   try {
     const { sourceSemesterId, targetSemesterId, copyCourses } = req.body;
 
@@ -997,7 +1123,7 @@ router.get('/', authenticateUser, (req, res) => {
 
 // 3.5 GET TEACHER WORKLOAD FOR A SPECIFIC ROUTINE
 // Remove only completed calendar semesters from a saved routine. Course and syllabus records remain untouched.
-router.post('/:id/refresh-calendar-semesters', authenticateUser, (req, res) => {
+router.post('/:id/refresh-calendar-semesters', authenticateUser, requireRoles(['ADMIN']), (req, res) => {
   try {
     const routine = db.prepare('SELECT id, routine_data FROM routines WHERE id = ?').get(req.params.id);
     if (!routine) return res.status(404).json({ error: 'Routine not found.' });
@@ -1008,6 +1134,7 @@ router.post('/:id/refresh-calendar-semesters', authenticateUser, (req, res) => {
     const eligibleIds = new Set(db.prepare(`
       SELECT id FROM semesters
       WHERE term_code LIKE 'CAL-%'
+        AND session_id IN (SELECT s.id FROM academic_sessions s WHERE s.student_info_enabled = 1 OR EXISTS (SELECT 1 FROM students st WHERE st.current_session_id = s.id))
         AND (COALESCE(class_end_date, end_date) IS NULL
           OR date(COALESCE(class_end_date, end_date)) >= date('now', 'localtime'))
     `).all().map(row => row.id));
@@ -1224,7 +1351,7 @@ router.get('/:id', authenticateUser, (req, res) => {
 });
 
 // 5. CREATE / SAVE NEW ROUTINE
-router.post('/', authenticateUser, (req, res) => {
+router.post('/', authenticateUser, requireRoles(['ADMIN']), (req, res) => {
   const { 
     type, 
     title, 
@@ -1302,7 +1429,7 @@ router.post('/', authenticateUser, (req, res) => {
 });
 
 // 6. UPDATE EXISTING ROUTINE
-router.put('/:id', authenticateUser, (req, res) => {
+router.put('/:id', authenticateUser, requireRoles(['ADMIN']), (req, res) => {
   const { 
     title, 
     department, 
@@ -1378,7 +1505,7 @@ router.put('/:id', authenticateUser, (req, res) => {
 });
 
 // 7. DELETE ROUTINE
-router.delete('/:id', authenticateUser, (req, res) => {
+router.delete('/:id', authenticateUser, requireRoles(['ADMIN']), (req, res) => {
   try {
     const result = db.prepare('DELETE FROM routines WHERE id = ?').run(req.params.id);
     if (result.changes === 0) {
@@ -1477,7 +1604,7 @@ router.get('/:id/versions/:versionId', authenticateUser, (req, res) => {
 });
 
 // 7.7 SAVE A NEW VERSION SNAPSHOT OF ROUTINE
-router.post('/:id/save-version', authenticateUser, (req, res) => {
+router.post('/:id/save-version', authenticateUser, requireRoles(['ADMIN']), (req, res) => {
   try {
     const routineId = req.params.id;
     const { changeSummary, versionNumber, routineData } = req.body;
@@ -1536,7 +1663,7 @@ router.post('/:id/save-version', authenticateUser, (req, res) => {
 });
 
 // 7.8 RESTORE HISTORICAL VERSION (Creates a new audit version preserving all history)
-router.post('/:id/restore-version/:versionId', authenticateUser, (req, res) => {
+router.post('/:id/restore-version/:versionId', authenticateUser, requireRoles(['ADMIN']), (req, res) => {
   try {
     const { id: routineId, versionId } = req.params;
     const targetVer = db.prepare('SELECT * FROM routine_versions WHERE id = ? AND routine_id = ?').get(versionId, routineId);
@@ -1598,7 +1725,7 @@ router.post('/:id/restore-version/:versionId', authenticateUser, (req, res) => {
 });
 
 // 8. PUBLISH ROUTINE AS OFFICIAL NOTICE & ACTIVE ROUTINE
-router.post('/:id/publish', authenticateUser, (req, res) => {
+router.post('/:id/publish', authenticateUser, requireRoles(['ADMIN']), (req, res) => {
   const routineId = req.params.id;
   const { customNote, changeSummary } = req.body;
 

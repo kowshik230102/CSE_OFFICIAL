@@ -99,8 +99,8 @@ export const Navbar = ({
         {/* Top Right Corner: Notification Bell & User Profile Menu */}
         {user ? (
           <div style={{ position: 'relative', display: 'flex', alignItems: 'center', gap: '0.85rem' }}>
-            {/* Top Right Notification Bell with unread indicator badge */}
-            <NotificationsDropdown onNavigateNoticeBoard={onNavigateNoticeBoard} />
+            {/* Staff accounts have no operational portal access. */}
+            {user.role !== 'OFFICE_STAFF' && <NotificationsDropdown onNavigateNoticeBoard={onNavigateNoticeBoard} />}
 
             {/* Role Badge */}
             {(user.isChair || user.email === 'chair.cse_pust@gmail.com') ? (

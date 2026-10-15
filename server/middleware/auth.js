@@ -45,6 +45,16 @@ function authenticateUser(req, res, next) {
       currentSessionId: user.current_session_id,
     };
 
+    // Office-staff accounts are provisioned only for identity and password
+    // management. Keep the restriction on the server as well as in the UI so
+    // academic data cannot be reached by typing an API URL directly.
+    if (req.user.role === 'OFFICE_STAFF') {
+      const allowedStaffPaths = new Set(['/api/auth/me', '/api/auth/change-password']);
+      if (!allowedStaffPaths.has(String(req.originalUrl || '').split('?')[0])) {
+        return res.status(403).json({ error: 'This office-staff account has no operational access.' });
+      }
+    }
+
     next();
   } catch (err) {
     return res.status(401).json({ error: 'Invalid or expired authentication token.' });

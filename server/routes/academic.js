@@ -130,22 +130,26 @@ router.get('/sessions', authenticateUser, (req, res) => {
            (SELECT COUNT(*) FROM students WHERE current_session_id = s.id) as student_count,
            (SELECT COUNT(*) FROM semesters WHERE session_id = s.id) as semester_count
     FROM academic_sessions s
-    ${studentInfoOnly ? 'WHERE s.student_info_enabled = 1' : ''}
-    ORDER BY s.start_date DESC
+    ${studentInfoOnly ? 'WHERE s.student_info_enabled = 1 OR EXISTS (SELECT 1 FROM students st WHERE st.current_session_id = s.id)' : ''}
+    ORDER BY s.created_at DESC
   `).all();
   return res.json({ sessions });
 });
 
-// Create a new session (Chairman / Office Staff / Admin)
-router.post('/sessions', authenticateUser, requireAcademicAuthority, (req, res) => {
+// Sessions are created only from Student Information. The stored date is the
+// record-creation date, not an academic calendar date.
+router.post('/sessions', authenticateUser, requireRoles(['ADMIN']), (req, res) => {
   const sessionName = (req.body.sessionName || req.body.session_name || '').trim();
-  const startDate = req.body.startDate || req.body.start_date;
-  const endDate = req.body.endDate || req.body.end_date || null;
+  const startDate = req.body.startDate || req.body.start_date || new Date().toISOString().slice(0, 10);
+  const endDate = null;
   const isCurrent = Boolean(req.body.isCurrent || req.body.is_current);
   const studentInfoEnabled = Boolean(req.body.studentInfoEnabled);
 
-  if (!sessionName || !startDate) {
-    return res.status(400).json({ error: 'Session name and start date are required.' });
+  if (!sessionName) {
+    return res.status(400).json({ error: 'Session name is required.' });
+  }
+  if (!studentInfoEnabled) {
+    return res.status(400).json({ error: 'Create the session from Student Information so its student grid is available first.' });
   }
 
   const existing = db.prepare('SELECT id FROM academic_sessions WHERE session_name = ?').get(sessionName);
@@ -279,7 +283,7 @@ router.get('/semesters/:semesterId/courses', authenticateUser, (req, res) => {
 });
 
 // Create course under a semester (Office Staff / Admin)
-router.post('/semesters/:semesterId/courses', authenticateUser, requireRoles(['OFFICE_STAFF', 'ADMIN']), (req, res) => {
+router.post('/semesters/:semesterId/courses', authenticateUser, requireRoles(['ADMIN']), (req, res) => {
   const { semesterId } = req.params;
   const { courseCode, courseTitle, creditHours, courseType, syllabusOutline, assignedTeacherId } = req.body;
 
@@ -313,7 +317,7 @@ router.post('/semesters/:semesterId/courses', authenticateUser, requireRoles(['O
 });
 
 // Assign or Reassign Teacher to a Course (Office Staff / Admin)
-router.post('/courses/:courseId/assign', authenticateUser, requireRoles(['OFFICE_STAFF', 'ADMIN']), (req, res) => {
+router.post('/courses/:courseId/assign', authenticateUser, requireRoles(['ADMIN']), (req, res) => {
   const { courseId } = req.params;
   const { teacherId } = req.body;
 
@@ -350,7 +354,7 @@ router.post('/courses/:courseId/assign', authenticateUser, requireRoles(['OFFICE
 // ==========================================
 
 // Enroll new student under a session (Office Staff / Admin)
-router.post('/sessions/:sessionId/students', authenticateUser, requireRoles(['OFFICE_STAFF', 'ADMIN']), (req, res) => {
+router.post('/sessions/:sessionId/students', authenticateUser, requireRoles(['ADMIN']), (req, res) => {
   const { sessionId } = req.params;
   const { studentRoll, registrationNo, email, password, firstName, lastName, phoneNumber } = req.body;
 
@@ -477,7 +481,7 @@ router.get('/curriculum', authenticateUser, (req, res) => {
 });
 
 // Create new course directly under any semester (Chairman / Office Staff / Admin)
-router.post('/courses', authenticateUser, requireAcademicAuthority, (req, res) => {
+router.post('/courses', authenticateUser, requireRoles(['ADMIN']), (req, res) => {
   const {
     semesterId,
     courseCode,
@@ -559,6 +563,7 @@ router.get('/running-semesters', authenticateUser, requireRoles(['ADMIN']), (req
       FROM semesters sem
       JOIN academic_sessions s ON s.id = sem.session_id
       WHERE sem.start_date IS NOT NULL AND sem.class_start_date IS NOT NULL
+        AND (s.student_info_enabled = 1 OR EXISTS (SELECT 1 FROM students st WHERE st.current_session_id = s.id))
     `).all().map(semester => getCalendarMetrics(semester));
 
     const sortByDate = (a, b) => b.start_date.localeCompare(a.start_date);
@@ -573,23 +578,22 @@ router.get('/running-semesters', authenticateUser, requireRoles(['ADMIN']), (req
 });
 
 router.post('/running-semesters', authenticateUser, requireRoles(['ADMIN']), (req, res) => {
-  const { sessionName, year, semester, startDate, endDate } = req.body;
-  if (![sessionName, year, semester, startDate].every(value => String(value || '').trim())) {
+  const { sessionId, year, semester, startDate, endDate } = req.body;
+  if (![sessionId, year, semester, startDate].every(value => String(value || '').trim())) {
     return res.status(400).json({ error: 'Academic session, year, semester, and semester start date are required.' });
   }
   if (endDate && endDate < startDate) {
     return res.status(400).json({ error: 'Semester end date cannot be before the semester start date.' });
   }
-  const normalizedSessionName = sessionName.trim();
   const semesterName = `${year.trim()} Year ${semester.trim()} Semester`;
-  let session = db.prepare('SELECT id FROM academic_sessions WHERE LOWER(session_name) = LOWER(?)').get(normalizedSessionName);
-  if (!session) {
-    const sessionId = 'sess-' + crypto.randomUUID();
-    db.prepare('INSERT INTO academic_sessions (id, session_name, start_date, end_date, is_current) VALUES (?, ?, ?, ?, 0)')
-      .run(sessionId, normalizedSessionName, startDate, endDate || null);
-    session = { id: sessionId };
-  }
-  const existing = db.prepare('SELECT id FROM semesters WHERE session_id = ? AND LOWER(semester_name) = LOWER(?)').get(session.id, semesterName);
+  const session = db.prepare('SELECT id FROM academic_sessions s WHERE id = ? AND (student_info_enabled = 1 OR EXISTS (SELECT 1 FROM students st WHERE st.current_session_id = s.id))').get(sessionId);
+  if (!session) return res.status(400).json({ error: 'Select a session that was created in Student Information first.' });
+  const existing = db.prepare(`
+    SELECT id FROM semesters
+    WHERE session_id = ?
+      AND term_code LIKE 'CAL-%'
+      AND LOWER(semester_name) = LOWER(?)
+  `).get(session.id, semesterName);
   if (existing) return res.status(400).json({ error: 'This semester already exists in the selected academic session.' });
 
   const id = 'sem-' + crypto.randomUUID();
@@ -603,22 +607,16 @@ router.post('/running-semesters', authenticateUser, requireRoles(['ADMIN']), (re
 });
 
 router.put('/running-semesters/:id', authenticateUser, requireRoles(['ADMIN']), (req, res) => {
-  const { sessionName, year, semester, startDate, endDate } = req.body;
-  if (![sessionName, year, semester, startDate].every(value => String(value || '').trim())) {
+  const { sessionId, year, semester, startDate, endDate } = req.body;
+  if (![sessionId, year, semester, startDate].every(value => String(value || '').trim())) {
     return res.status(400).json({ error: 'Academic session, year, semester, and semester start date are required.' });
   }
   if (endDate && endDate < startDate) {
     return res.status(400).json({ error: 'Semester end date cannot be before the semester start date.' });
   }
   try {
-    const normalizedSessionName = sessionName.trim();
-    let session = db.prepare('SELECT id FROM academic_sessions WHERE LOWER(session_name) = LOWER(?)').get(normalizedSessionName);
-    if (!session) {
-      const sessionId = 'sess-' + crypto.randomUUID();
-      db.prepare('INSERT INTO academic_sessions (id, session_name, start_date, end_date, is_current) VALUES (?, ?, ?, ?, 0)')
-        .run(sessionId, normalizedSessionName, startDate, endDate || null);
-      session = { id: sessionId };
-    }
+    const session = db.prepare('SELECT id FROM academic_sessions s WHERE id = ? AND (student_info_enabled = 1 OR EXISTS (SELECT 1 FROM students st WHERE st.current_session_id = s.id))').get(sessionId);
+    if (!session) return res.status(400).json({ error: 'Select a session that was created in Student Information first.' });
     const semesterName = `${year.trim()} Year ${semester.trim()} Semester`;
     const result = db.prepare(`UPDATE semesters SET session_id = ?, semester_name = ?, year = ?, semester = ?, start_date = ?, end_date = ?, class_start_date = ?, class_end_date = ? WHERE id = ?`)
       .run(session.id, semesterName, year.trim(), semester.trim(), startDate, endDate || null, startDate, endDate || null, req.params.id);
@@ -630,7 +628,7 @@ router.put('/running-semesters/:id', authenticateUser, requireRoles(['ADMIN']), 
 });
 
 // Update course details and replace its CO-wise course content in one transaction.
-router.put('/courses/:courseId', authenticateUser, requireAcademicAuthority, (req, res) => {
+router.put('/courses/:courseId', authenticateUser, requireRoles(['ADMIN']), (req, res) => {
   const { courseId } = req.params;
   const existing = db.prepare('SELECT * FROM courses WHERE id = ?').get(courseId);
   if (!existing) return res.status(404).json({ error: 'Course not found.' });
@@ -682,7 +680,7 @@ router.put('/courses/:courseId', authenticateUser, requireAcademicAuthority, (re
 });
 
 // A course may be removed only while no academic, assessment, or timetable records depend on it.
-router.delete('/courses/:courseId', authenticateUser, requireAcademicAuthority, (req, res) => {
+router.delete('/courses/:courseId', authenticateUser, requireRoles(['ADMIN']), (req, res) => {
   const { courseId } = req.params;
   const course = db.prepare('SELECT id, course_code, course_title, is_custom FROM courses WHERE id = ?').get(courseId);
   if (!course) return res.status(404).json({ error: 'Course not found.' });
@@ -770,7 +768,7 @@ router.get('/students-overview', authenticateUser, (req, res) => {
 });
 
 // Enroll / Add student to a session with strict 40-seat capacity check
-router.post('/students', authenticateUser, requireAcademicAuthority, (req, res) => {
+router.post('/students', authenticateUser, requireRoles(['ADMIN']), (req, res) => {
   const sessionId = req.body.sessionId || req.body.session_id;
   const studentRoll = req.body.studentRoll || req.body.student_roll;
   const registrationNo = req.body.registrationNo || req.body.registration_no || '';
@@ -865,11 +863,10 @@ function requireStudentSheetAccess(req, res, next) {
   if (!req.user) {
     return res.status(401).json({ error: 'Authentication required.' });
   }
-  const isChair = req.user.email === 'chair.cse_pust@gmail.com' || req.user.role === 'ADMIN' || (req.user.designation && req.user.designation.toLowerCase().includes('chair'));
-  if (['OFFICE_STAFF', 'ADMIN', 'TEACHER'].includes(req.user.role) || isChair) {
+  if (req.user.role === 'ADMIN') {
     return next();
   }
-  return res.status(403).json({ error: 'Access Denied: Only Department Faculty, Chairman, or Academic Office Staff can edit student records.' });
+  return res.status(403).json({ error: 'Access Denied: Only an administrator can edit Student Information.' });
 }
 
 // 1. GET full student sheet for a session
@@ -1557,21 +1554,7 @@ router.get('/continuous-assessment/sessions', authenticateUser, (req, res) => {
 
 // 8b. CREATE / START NEW ACADEMIC SESSION
 router.post('/continuous-assessment/sessions', authenticateUser, (req, res) => {
-  const { sessionName, startDate, endDate, isCurrent } = req.body;
-
-  if (!sessionName || !sessionName.trim()) {
-    return res.status(400).json({ error: 'Session name is required.' });
-  }
-
-  try {
-    const session = ensureSessionWithStandardCourses(sessionName.trim(), startDate, endDate, Boolean(isCurrent));
-    return res.status(201).json({
-      message: `Academic Session '${session.session_name}' initialized successfully!`,
-      session
-    });
-  } catch (err) {
-    return res.status(500).json({ error: 'Failed to create session: ' + err.message });
-  }
+  return res.status(400).json({ error: 'Create new sessions from Student Information first. Regular Assessment uses those central sessions automatically.' });
 });
 
 // 8c. CREATE SEMESTER FEATURE (With duplicate validation, auto curriculum courses & Routine teacher linking)

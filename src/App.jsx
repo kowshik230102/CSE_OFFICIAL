@@ -9,6 +9,8 @@ import { LoginPage } from './components/LoginPage';
 import { AdminView } from './components/AdminView';
 import { OfficeView } from './components/OfficeView';
 import { TeacherView } from './components/TeacherView';
+import { TeacherDashboardView } from './components/TeacherDashboardView';
+import { StaffRestrictedView } from './components/StaffRestrictedView';
 import { StudentView } from './components/StudentView';
 import { PasswordModal } from './components/AuthModals';
 import { RoutineGeneratorView } from './components/RoutineGeneratorView';
@@ -24,6 +26,7 @@ export function App() {
   // Navigation & Drawer States
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [activeNavTab, setActiveNavTab] = useState('dashboard');
+  const [assessmentTarget, setAssessmentTarget] = useState(null);
 
   // Modal States
   const [isPasswordModalOpen, setIsPasswordModalOpen] = useState(false);
@@ -50,7 +53,13 @@ export function App() {
   }
 
   const handleSelectNavTab = (tabId) => {
+    if (user.role === 'OFFICE_STAFF' && tabId !== 'dashboard') return;
     setActiveNavTab(tabId);
+  };
+
+  const openTeacherAssessment = (course) => {
+    setAssessmentTarget(course);
+    setActiveNavTab('continuous-assessment');
   };
 
   const handleOpenTeacherManagement = (featureKey) => {
@@ -125,6 +134,8 @@ export function App() {
           <ContinuousAssessmentView
             user={user}
             onBackToDashboard={() => setActiveNavTab('dashboard')}
+            autoTarget={assessmentTarget}
+            onAutoTargetHandled={() => setAssessmentTarget(null)}
           />
         ) : activeNavTab === 'course-info' ? (
           <CourseInfoView
@@ -139,8 +150,9 @@ export function App() {
         ) : (
           <>
             {user.role === 'ADMIN' && <AdminView initialTab={getRoleTab() || 'users'} />}
-            {user.role === 'OFFICE_STAFF' && <OfficeView initialTab={getRoleTab() || 'sessions'} />}
-            {user.role === 'TEACHER' && <TeacherView initialTab={getRoleTab() || 'my-courses'} />}
+            {user.role === 'OFFICE_STAFF' && <StaffRestrictedView />}
+            {user.role === 'TEACHER' && activeNavTab === 'dashboard' && <TeacherDashboardView onOpenAssessment={openTeacherAssessment} />}
+            {user.role === 'TEACHER' && activeNavTab !== 'dashboard' && <TeacherView initialTab={getRoleTab() || 'my-courses'} />}
             {user.role === 'STUDENT' && <StudentView initialTab={getRoleTab() || 'courses'} />}
           </>
         )}
