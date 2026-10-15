@@ -16,6 +16,8 @@
   --bg-card: #ffffff;
   --bg-surface: #f1f5f9;
   --bg-input: #ffffff;
+  --bg-elevated: #ffffff;
+  --page-background: linear-gradient(180deg, #f8fafc 0%, #f4f7fb 100%);
 
   --text-main: #0f172a;
   --text-muted: #64748b;
@@ -45,6 +47,10 @@
   --shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1);
   --shadow-xl: 0 20px 25px -5px rgb(0 0 0 / 0.1), 0 8px 10px -6px rgb(0 0 0 / 0.1);
 
+  --content-max-width: 1520px;
+  --focus-ring: 0 0 0 3px rgb(37 99 235 / 0.22);
+  --transition-fast: 150ms ease;
+
   --radius-sm: 6px;
   --radius-md: 10px;
   --radius-lg: 16px;
@@ -59,13 +65,8 @@
 
 body {
   font-family: var(--font-main);
-  background-color: #f8fafc;
-  background-image: 
-    radial-gradient(at 0% 0%, rgba(59, 130, 246, 0.08) 0px, transparent 50%),
-    radial-gradient(at 100% 0%, rgba(99, 102, 241, 0.09) 0px, transparent 50%),
-    radial-gradient(at 50% 50%, rgba(236, 72, 153, 0.04) 0px, transparent 50%),
-    radial-gradient(at 0% 100%, rgba(16, 185, 129, 0.06) 0px, transparent 50%),
-    radial-gradient(at 100% 100%, rgba(147, 51, 234, 0.07) 0px, transparent 50%);
+  background-color: var(--bg-page);
+  background-image: var(--page-background);
   background-attachment: fixed;
   color: var(--text-main);
   line-height: 1.5;
@@ -87,28 +88,25 @@ body {
 
 .content-area {
   flex: 1;
-  padding: 2rem;
-  max-width: 1440px;
+  padding: clamp(1rem, 2.4vw, 2.25rem);
+  max-width: var(--content-max-width);
   margin: 0 auto;
   width: 100%;
 }
 
 /* Glass & Card Design */
 .card {
-  background: rgba(255, 255, 255, 0.94);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
-  border: 1px solid rgba(226, 232, 240, 0.85);
+  background: var(--bg-card);
+  border: 1px solid var(--border);
   border-radius: 16px;
   box-shadow: 0 4px 20px -2px rgba(15, 23, 42, 0.06), 0 2px 6px -1px rgba(15, 23, 42, 0.03);
   padding: 1.5rem;
-  transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+  transition: border-color var(--transition-fast), box-shadow var(--transition-fast), background-color var(--transition-fast);
 }
 
 .card:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 14px 30px -4px rgba(15, 23, 42, 0.09), 0 4px 12px -2px rgba(15, 23, 42, 0.04);
-  border-color: rgba(147, 197, 253, 0.7);
+  box-shadow: 0 10px 24px -10px rgba(15, 23, 42, 0.18);
+  border-color: var(--primary-border);
 }
 
 .card-header {
@@ -178,7 +176,7 @@ body {
 }
 
 .btn-secondary {
-  background: #ffffff;
+  background: var(--bg-elevated);
   color: var(--text-main);
   border-color: var(--border);
 }
@@ -2720,5 +2718,619 @@ body {
 
 
 
+
+/* ========================================================================
+   Portal design system and theme layer
+   ======================================================================== */
+:root[data-theme='dark'] {
+  --primary: #60a5fa;
+  --primary-hover: #93c5fd;
+  --primary-light: rgb(96 165 250 / 0.14);
+  --primary-border: rgb(96 165 250 / 0.42);
+  --accent: #a5b4fc;
+  --accent-gradient: linear-gradient(135deg, #172554 0%, #1e3a8a 58%, #312e81 100%);
+  --header-gradient: linear-gradient(135deg, #0b1220 0%, #111b2e 100%);
+  --bg-page: #0b1220;
+  --bg-card: #121c2d;
+  --bg-elevated: #18243a;
+  --bg-surface: #1a2840;
+  --bg-input: #0e1727;
+  --page-background: radial-gradient(circle at 15% -10%, rgb(59 130 246 / 0.14), transparent 34%), linear-gradient(180deg, #0b1220 0%, #0e1727 100%);
+  --text-main: #e5edf8;
+  --text-muted: #9aaac2;
+  --text-light: #71829b;
+  --border: #2b3a52;
+  --border-focus: #60a5fa;
+  --success: #34d399;
+  --success-bg: rgb(16 185 129 / 0.13);
+  --success-text: #86efac;
+  --warning: #fbbf24;
+  --warning-bg: rgb(245 158 11 / 0.14);
+  --warning-text: #fde68a;
+  --danger: #fb7185;
+  --danger-bg: rgb(244 63 94 / 0.13);
+  --danger-text: #fda4af;
+  --info: #38bdf8;
+  --info-bg: rgb(14 165 233 / 0.13);
+  --info-text: #7dd3fc;
+  --focus-ring: 0 0 0 3px rgb(96 165 250 / 0.28);
+  --shadow-sm: 0 1px 2px rgb(0 0 0 / 0.22);
+  --shadow-md: 0 8px 20px rgb(0 0 0 / 0.24);
+  --shadow-lg: 0 16px 36px rgb(0 0 0 / 0.3);
+  --shadow-xl: 0 24px 55px rgb(0 0 0 / 0.4);
+}
+
+html {
+  min-width: 320px;
+  background: var(--bg-page);
+}
+
+body {
+  overflow-x: hidden;
+  transition: background-color 180ms ease, color 180ms ease;
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+}
+
+button:focus-visible,
+a:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible,
+[tabindex]:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+button:disabled,
+input:disabled,
+select:disabled,
+textarea:disabled {
+  cursor: not-allowed;
+  opacity: 0.58;
+}
+
+::selection {
+  color: #ffffff;
+  background: var(--primary);
+}
+
+.app-loading-state {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.7rem;
+  color: var(--text-main);
+  background: var(--page-background);
+}
+
+.app-loading-state span {
+  color: var(--text-muted);
+  font-size: 0.875rem;
+}
+
+.app-loading-mark {
+  width: 52px;
+  height: 52px;
+  display: grid;
+  place-items: center;
+  color: #ffffff;
+  border-radius: 15px;
+  background: var(--accent-gradient);
+  box-shadow: 0 12px 26px rgb(37 99 235 / 0.28);
+}
+
+.app-error-state {
+  min-height: 100vh;
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  gap: 1rem;
+  padding: 2rem;
+  color: var(--text-main);
+  text-align: center;
+  background: var(--page-background);
+}
+
+.app-error-state > div:nth-child(2) {
+  max-width: 440px;
+}
+
+.app-error-state h2 {
+  margin: 0;
+  font-size: 1.25rem;
+}
+
+.app-error-state p {
+  margin: 0.45rem 0 0;
+  color: var(--text-muted);
+}
+
+.app-error-icon {
+  display: grid;
+  width: 54px;
+  height: 54px;
+  place-items: center;
+  border-radius: 16px;
+  color: var(--warning-text);
+  background: var(--warning-bg);
+}
+
+.theme-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.45rem;
+  min-height: 36px;
+  padding: 0.45rem 0.7rem;
+  border: 1px solid rgb(148 163 184 / 0.28);
+  border-radius: 10px;
+  color: #dbeafe;
+  background: rgb(255 255 255 / 0.07);
+  cursor: pointer;
+  transition: background-color var(--transition-fast), border-color var(--transition-fast), transform var(--transition-fast);
+}
+
+.theme-toggle:hover {
+  border-color: rgb(147 197 253 / 0.72);
+  background: rgb(255 255 255 / 0.14);
+  transform: translateY(-1px);
+}
+
+.theme-toggle-compact {
+  width: 36px;
+  padding: 0;
+}
+
+body.sidebar-open {
+  overflow: hidden;
+}
+
+.sidebar-drawer button[aria-label='Open my profile'] {
+  width: calc(100% - 2rem);
+  text-align: left;
+  font: inherit;
+}
+
+.sidebar-drawer button[aria-label='Open my profile']:focus-visible {
+  box-shadow: var(--focus-ring);
+}
+
+.nav-role-badge,
+.nav-user-copy {
+  display: inline-flex;
+}
+
+.nav-user-copy {
+  display: block;
+}
+
+.nav-profile-menu {
+  color: var(--text-main);
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-xl);
+}
+
+.nav-profile-menu-heading {
+  border-bottom: 1px solid var(--border);
+}
+
+.nav-profile-menu-email {
+  color: var(--text-muted);
+}
+
+.theme-preference-group {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.45rem;
+}
+
+.theme-preference-option {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35rem;
+  min-height: 36px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text-muted);
+  background: var(--bg-elevated);
+  cursor: pointer;
+  font-size: 0.76rem;
+  font-weight: 700;
+}
+
+.theme-preference-option:hover,
+.theme-preference-option.active {
+  color: var(--primary);
+  border-color: var(--primary-border);
+  background: var(--primary-light);
+}
+
+.form-input,
+.form-select,
+.form-textarea,
+.table-container,
+.modal-dialog {
+  background: var(--bg-card);
+  border-color: var(--border);
+  color: var(--text-main);
+}
+
+.form-input::placeholder,
+.form-textarea::placeholder {
+  color: var(--text-light);
+}
+
+.form-input:focus,
+.form-select:focus,
+.form-textarea:focus {
+  border-color: var(--border-focus);
+  box-shadow: var(--focus-ring);
+}
+
+.data-table th {
+  color: var(--text-muted);
+  background: var(--bg-surface);
+  border-color: var(--border);
+}
+
+.data-table td {
+  color: var(--text-main);
+  border-color: var(--border);
+}
+
+.data-table tr:hover td {
+  background: var(--bg-surface);
+}
+
+.modal-header,
+.modal-footer {
+  background: var(--bg-surface);
+  border-color: var(--border);
+}
+
+.nav-link:hover {
+  color: var(--text-main);
+  background: var(--bg-surface);
+}
+
+:root[data-theme='dark'] .card,
+:root[data-theme='dark'] .modern-card,
+:root[data-theme='dark'] .segmented-nav-wrapper,
+:root[data-theme='dark'] .student-sheet-card,
+:root[data-theme='dark'] .ca-matrix-card,
+:root[data-theme='dark'] .course-tile,
+:root[data-theme='dark'] .empty-state,
+:root[data-theme='dark'] .credential-box,
+:root[data-theme='dark'] .option-card {
+  color: var(--text-main);
+  background: var(--bg-card) !important;
+  border-color: var(--border) !important;
+}
+
+:root[data-theme='dark'] .data-table tr:hover td,
+:root[data-theme='dark'] .student-sheet-table tr:hover td {
+  background: var(--bg-surface) !important;
+}
+
+:root[data-theme='dark'] .modal-overlay {
+  background: rgb(2 6 23 / 0.76);
+}
+
+:root[data-theme='dark'] .btn-secondary {
+  color: var(--text-main);
+  background: var(--bg-elevated);
+  border-color: var(--border);
+}
+
+:root[data-theme='dark'] .btn-secondary:hover {
+  background: var(--bg-surface);
+  border-color: var(--primary-border);
+}
+
+/* Most legacy component styles were written inline. These screen-only rules
+   map their repeated neutral values to the central theme palette without
+   touching print documents or academic calculations. */
+@media screen {
+  :root[data-theme='dark'] [style*="background: rgb(255, 255, 255)"],
+  :root[data-theme='dark'] [style*="background-color: rgb(255, 255, 255)"] {
+    background: var(--bg-card) !important;
+  }
+
+  :root[data-theme='dark'] [style*="background: rgb(248, 250, 252)"],
+  :root[data-theme='dark'] [style*="background: rgb(241, 245, 249)"],
+  :root[data-theme='dark'] [style*="background-color: rgb(248, 250, 252)"],
+  :root[data-theme='dark'] [style*="background-color: rgb(241, 245, 249)"] {
+    background: var(--bg-surface) !important;
+  }
+
+  :root[data-theme='dark'] [style*="color: rgb(15, 23, 42)"],
+  :root[data-theme='dark'] [style*="color: rgb(30, 41, 59)"],
+  :root[data-theme='dark'] [style*="color: rgb(51, 65, 85)"] {
+    color: var(--text-main) !important;
+  }
+
+  :root[data-theme='dark'] [style*="color: rgb(100, 116, 139)"],
+  :root[data-theme='dark'] [style*="color: rgb(71, 85, 105)"] {
+    color: var(--text-muted) !important;
+  }
+
+  :root[data-theme='dark'] [style*="border: 1px solid rgb(226, 232, 240)"],
+  :root[data-theme='dark'] [style*="border-bottom: 1px solid rgb(226, 232, 240)"],
+  :root[data-theme='dark'] [style*="border-top: 1px solid rgb(226, 232, 240)"] {
+    border-color: var(--border) !important;
+  }
+}
+
+@media (max-width: 900px) {
+  .top-nav {
+    padding: 0.7rem 1rem;
+  }
+
+  .content-area {
+    padding: 1rem;
+  }
+
+  .brand-section {
+    min-width: 0;
+    gap: 0.6rem;
+  }
+
+  .brand-title {
+    max-width: min(53vw, 430px);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+}
+
+@media (max-width: 640px) {
+  .top-nav {
+    min-height: 64px;
+    padding: 0.65rem 0.75rem;
+  }
+
+  .brand-logo-icon {
+    width: 36px;
+    height: 36px;
+  }
+
+  .brand-title {
+    max-width: 46vw;
+    font-size: 0.92rem;
+  }
+
+  .brand-subtitle,
+  .nav-role-badge,
+  .nav-user-copy {
+    display: none;
+  }
+
+  .nav-actions {
+    gap: 0.45rem !important;
+  }
+
+  .sidebar-drawer {
+    width: min(320px, 92vw) !important;
+  }
+
+  .content-area {
+    padding: 0.75rem;
+  }
+
+  .card {
+    padding: 1rem;
+    border-radius: 13px;
+  }
+
+  .modal-overlay {
+    align-items: flex-end;
+    padding: 0;
+  }
+
+  .modal-dialog {
+    max-height: 92dvh;
+    border-radius: 16px 16px 0 0;
+  }
+
+  .theme-preference-group {
+    gap: 0.35rem;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 1ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 1ms !important;
+  }
+}
+
+/* Login uses the same theme preference as the authenticated portal. Keeping
+   these overrides scoped avoids changing any form behaviour or credentials. */
+.login-theme-control {
+  position: absolute;
+  top: 1rem;
+  right: 1rem;
+  z-index: 20;
+}
+
+.login-brand-block {
+  max-width: min(100%, 640px);
+  padding-inline: 3.5rem;
+}
+
+.login-brand-heading {
+  color: #ffffff;
+}
+
+.login-brand-subtitle {
+  color: #94a3b8;
+}
+
+.login-security-status {
+  color: #bae6fd;
+  background: rgb(14 116 144 / 0.24);
+  border: 1px solid rgb(56 189 248 / 0.22);
+}
+
+.login-feedback-error {
+  color: #fca5a5;
+}
+
+.login-feedback-success {
+  color: #6ee7b7;
+}
+
+:root[data-theme='light'] .login-universe-bg {
+  background:
+    radial-gradient(circle at 10% 0%, rgb(59 130 246 / 0.16), transparent 34%),
+    radial-gradient(circle at 95% 100%, rgb(99 102 241 / 0.13), transparent 34%),
+    linear-gradient(160deg, #f8fbff 0%, #eff6ff 47%, #f8fafc 100%);
+}
+
+:root[data-theme='light'] .login-glow-1,
+:root[data-theme='light'] .login-glow-2,
+:root[data-theme='light'] .login-glow-3 {
+  opacity: 0.58;
+}
+
+:root[data-theme='light'] .login-master-card {
+  background: rgb(255 255 255 / 0.88);
+  border-color: rgb(148 163 184 / 0.28);
+  box-shadow: 0 24px 55px -28px rgb(15 23 42 / 0.35), 0 0 0 1px rgb(255 255 255 / 0.85);
+}
+
+:root[data-theme='light'] .login-tab-switcher {
+  background: #eff6ff;
+  border-color: #dbeafe;
+}
+
+:root[data-theme='light'] .login-tab-btn {
+  color: #475569;
+}
+
+:root[data-theme='light'] .login-tab-btn:hover {
+  color: #0f172a;
+  background: rgb(255 255 255 / 0.78);
+}
+
+:root[data-theme='light'] .login-input-label {
+  color: #334155;
+}
+
+:root[data-theme='light'] .login-input {
+  color: #0f172a;
+  background: #ffffff;
+  border-color: #cbd5e1;
+}
+
+:root[data-theme='light'] .login-input:focus {
+  background: #ffffff;
+  border-color: #2563eb;
+}
+
+:root[data-theme='light'] .login-input::placeholder {
+  color: #94a3b8;
+}
+
+:root[data-theme='light'] .login-input-toggle-pwd {
+  color: #64748b;
+}
+
+:root[data-theme='light'] .login-input-toggle-pwd:hover {
+  color: #1d4ed8;
+}
+
+:root[data-theme='light'] .login-preset-chip {
+  color: #475569;
+  background: #ffffff;
+  border-color: #cbd5e1;
+}
+
+:root[data-theme='light'] .login-brand-heading {
+  color: #0f172a !important;
+  text-shadow: none !important;
+}
+
+:root[data-theme='light'] .login-brand-subtitle {
+  color: #64748b;
+}
+
+:root[data-theme='light'] .login-security-status {
+  color: #047857;
+  background: #ecfdf5;
+  border-color: #a7f3d0;
+}
+
+:root[data-theme='light'] .login-theme-control .theme-toggle {
+  color: #1e3a8a;
+  background: rgb(255 255 255 / 0.88);
+  border-color: #cbd5e1;
+  box-shadow: 0 4px 12px rgb(15 23 42 / 0.08);
+}
+
+:root[data-theme='light'] .login-feedback-error {
+  color: #991b1b !important;
+  background: #fef2f2 !important;
+  border-color: #fecaca !important;
+}
+
+:root[data-theme='light'] .login-feedback-success {
+  color: #065f46 !important;
+  background: #ecfdf5 !important;
+  border-color: #a7f3d0 !important;
+}
+
+:root[data-theme='light'] .login-master-card h3 {
+  color: var(--text-main) !important;
+}
+
+:root[data-theme='light'] .login-master-card p {
+  color: var(--text-muted) !important;
+}
+
+@media (max-width: 640px) {
+  .login-theme-control {
+    top: 0.75rem;
+    right: 0.75rem;
+  }
+
+  .login-brand-block {
+    margin-bottom: 1.25rem !important;
+    padding-inline: 3rem;
+  }
+
+  .login-brand-heading {
+    font-size: 1.35rem !important;
+    line-height: 1.22;
+  }
+
+  .login-master-card {
+    border-radius: 18px;
+  }
+
+  .login-tab-switcher {
+    gap: 0.2rem;
+  }
+
+  .login-tab-btn {
+    gap: 0.25rem;
+    padding: 0.58rem 0.35rem;
+    font-size: 0.68rem;
+  }
+}
 
 

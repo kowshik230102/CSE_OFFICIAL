@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth, DEMO_USERS } from '../context/AuthContext';
+import { ThemeToggle } from './ThemeToggle';
 import { 
   GraduationCap, 
   ShieldCheck, 
@@ -18,8 +19,7 @@ import {
   Layers,
   Phone,
   Building,
-  School,
-  Database
+  School
 } from 'lucide-react';
 
 export const LoginPage = () => {
@@ -142,13 +142,14 @@ export const LoginPage = () => {
 
   return (
     <div className="login-universe-bg">
+      <div className="login-theme-control"><ThemeToggle /></div>
       {/* Animated glowing mesh orbs */}
       <div className="login-glow-1"></div>
       <div className="login-glow-2"></div>
       <div className="login-glow-3"></div>
 
       {/* Department Branding Header */}
-      <div style={{ textAlign: 'center', marginBottom: '1.75rem', position: 'relative', zIndex: 10 }}>
+      <div className="login-brand-block" style={{ textAlign: 'center', marginBottom: '1.75rem', position: 'relative', zIndex: 10 }}>
         <div 
           style={{ 
             display: 'inline-flex', 
@@ -164,16 +165,16 @@ export const LoginPage = () => {
         >
           <GraduationCap size={36} color="#ffffff" />
         </div>
-        <h1 style={{ fontSize: '1.85rem', fontWeight: 800, color: '#ffffff', letterSpacing: '-0.02em', textShadow: '0 2px 10px rgba(0,0,0,0.5)' }}>
+        <h1 className="login-brand-heading" style={{ fontSize: '1.85rem', fontWeight: 800, letterSpacing: '-0.02em', textShadow: '0 2px 10px rgba(0,0,0,0.5)' }}>
           Department of Computer Science & Engineering
         </h1>
-        <p style={{ color: '#94a3b8', fontSize: '0.875rem', marginTop: '0.35rem', fontWeight: 500 }}>
+        <p className="login-brand-subtitle" style={{ fontSize: '0.875rem', marginTop: '0.35rem', fontWeight: 500 }}>
           Official Academic Operations, Course Management & Student Records
         </p>
 
-        {/* Database Live Connectivity Pill */}
-        <div style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem', marginTop: '0.65rem', padding: '0.25rem 0.75rem', borderRadius: '9999px', background: 'rgba(16, 185, 129, 0.15)', border: '1px solid rgba(16, 185, 129, 0.3)', color: '#34d399', fontSize: '0.725rem', fontWeight: 600 }}>
-          <Database size={12} /> Connected to MongoDB Cloud Atlas (Cluster0)
+        {/* Secure sign-in status */}
+        <div className="login-security-status" style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem', marginTop: '0.65rem', padding: '0.25rem 0.75rem', borderRadius: '9999px', fontSize: '0.725rem', fontWeight: 600 }}>
+          <ShieldCheck size={12} /> Secure institutional sign-in
         </div>
       </div>
 
@@ -205,14 +206,14 @@ export const LoginPage = () => {
 
         {/* Error / Success Feedback Banner */}
         {errorMessage && (
-          <div style={{ margin: '0 1.5rem 1rem', padding: '0.75rem 1rem', borderRadius: '12px', background: 'rgba(239, 68, 68, 0.15)', border: '1px solid rgba(239, 68, 68, 0.3)', color: '#fca5a5', fontSize: '0.825rem', display: 'flex', alignItems: 'center', gap: '0.5rem', animation: 'fadeIn 0.2s ease' }}>
+          <div className="login-feedback login-feedback-error" role="alert" style={{ margin: '0 1.5rem 1rem', padding: '0.75rem 1rem', borderRadius: '12px', background: 'rgba(239, 68, 68, 0.15)', border: '1px solid rgba(239, 68, 68, 0.3)', color: '#fca5a5', fontSize: '0.825rem', display: 'flex', alignItems: 'center', gap: '0.5rem', animation: 'fadeIn 0.2s ease' }}>
             <AlertCircle size={16} style={{ flexShrink: 0 }} />
             <span>{errorMessage}</span>
           </div>
         )}
 
         {successMessage && (
-          <div style={{ margin: '0 1.5rem 1rem', padding: '0.75rem 1rem', borderRadius: '12px', background: 'rgba(16, 185, 129, 0.15)', border: '1px solid rgba(16, 185, 129, 0.3)', color: '#6ee7b7', fontSize: '0.825rem', display: 'flex', alignItems: 'center', gap: '0.5rem', animation: 'fadeIn 0.2s ease' }}>
+          <div className="login-feedback login-feedback-success" role="status" style={{ margin: '0 1.5rem 1rem', padding: '0.75rem 1rem', borderRadius: '12px', background: 'rgba(16, 185, 129, 0.15)', border: '1px solid rgba(16, 185, 129, 0.3)', color: '#6ee7b7', fontSize: '0.825rem', display: 'flex', alignItems: 'center', gap: '0.5rem', animation: 'fadeIn 0.2s ease' }}>
             <CheckCircle2 size={16} style={{ flexShrink: 0 }} />
             <span>{successMessage}</span>
           </div>
@@ -252,7 +253,7 @@ export const LoginPage = () => {
               <div className="login-input-group">
                 <label className="login-input-label">
                   <span>Root Master Password</span>
-                  <span style={{ fontSize: '0.7rem', color: '#f59e0b' }}>Protected by Bcrypt/Argon2</span>
+                  <span style={{ fontSize: '0.7rem', color: '#f59e0b' }}>Protected by bcrypt</span>
                 </label>
                 <div className="login-input-wrapper">
                   <Lock size={16} className="login-input-icon" />
@@ -315,7 +316,7 @@ export const LoginPage = () => {
             <div 
               onClick={() => {
                 setSigninForm({ email: 'chair.cse_pust@gmail.com', password: '12345678' });
-                quickLogin('chair.cse_pust@gmail.com', '12345678');
+                quickLogin('chair.cse_pust@gmail.com', 'Teacher@123');
               }}
               style={{
                 cursor: 'pointer',
@@ -655,7 +656,7 @@ export const LoginPage = () => {
 
       {/* Footer System Info */}
       <div style={{ textAlign: 'center', marginTop: '1.5rem', color: '#64748b', fontSize: '0.75rem', position: 'relative', zIndex: 10 }}>
-        CSE Department Portal • 5,000+ Active Students Capacity • Secured by Argon2 & JWT RBAC
+        CSE Department Portal • Role-based academic access
       </div>
     </div>
   );

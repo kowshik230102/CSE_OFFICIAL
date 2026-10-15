@@ -19,6 +19,21 @@ function requireAcademicAuthority(req, res, next) {
   return res.status(403).json({ error: 'Access Denied: Only Department Faculty, Chairman, or Academic Office Staff can perform this action.' });
 }
 
+// Directory synchronization and manual directory-course updates are central
+// administrative operations. General faculty access is intentionally not
+// enough to change shared records.
+function requireDirectoryManager(req, res, next) {
+  if (!req.user) {
+    return res.status(401).json({ error: 'Authentication required.' });
+  }
+
+  if (req.user.role === 'ADMIN' || req.user.email === 'chair.cse_pust@gmail.com') {
+    return next();
+  }
+
+  return res.status(403).json({ error: 'Only the department administrator or chairman can manage the faculty directory.' });
+}
+
 const MAX_OUTLINE_ENTRIES = 60;
 const MAX_OUTLINE_TOPIC_LENGTH = 8000;
 
@@ -1354,7 +1369,7 @@ router.get('/faculty-courses', (req, res) => {
 });
 
 // Trigger 1-Click On-Demand Sync from PUST External Website
-router.post('/sync-pust-teachers', async (req, res) => {
+router.post('/sync-pust-teachers', authenticateUser, requireDirectoryManager, async (req, res) => {
   try {
     const syncResult = await syncPustTeachersToDatabase();
     return res.json({
@@ -1363,7 +1378,8 @@ router.post('/sync-pust-teachers', async (req, res) => {
       teachers: syncResult.teachers
     });
   } catch (err) {
-    return res.status(500).json({ error: 'Failed to synchronize faculty from PUST portal: ' + err.message });
+    console.error('[Faculty directory sync] Failed:', err);
+    return res.status(502).json({ error: 'The faculty directory could not be synchronized right now. Please try again later.' });
   }
 });
 
@@ -1373,12 +1389,12 @@ router.get('/pust-sync-status', (req, res) => {
 });
 
 // Update a teacher's course deadline or schedule
-router.put('/faculty-courses/:id', authenticateUser, (req, res) => {
+router.put('/faculty-courses/:id', authenticateUser, requireDirectoryManager, (req, res) => {
   const { classEndDate, weeklySchedule, targetDept } = req.body;
   const courseId = req.params.id;
 
   try {
-    db.prepare(`
+    const result = db.prepare(`
       UPDATE teacher_courses
       SET class_end_date = COALESCE(?, class_end_date),
           weekly_schedule = COALESCE(?, weekly_schedule),
@@ -1386,9 +1402,14 @@ router.put('/faculty-courses/:id', authenticateUser, (req, res) => {
       WHERE id = ?
     `).run(classEndDate || null, weeklySchedule || null, targetDept || null, courseId);
 
+    if (!result.changes) {
+      return res.status(404).json({ error: 'Faculty course record not found.' });
+    }
+
     return res.json({ message: 'Course schedule updated successfully.' });
   } catch (err) {
-    return res.status(500).json({ error: 'Failed to update course schedule: ' + err.message });
+    console.error('[Faculty course update] Failed:', err);
+    return res.status(500).json({ error: 'Failed to update the faculty course schedule.' });
   }
 });
 

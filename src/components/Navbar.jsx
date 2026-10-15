@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { NotificationsDropdown } from './NotificationsDropdown';
+import { ThemeToggle } from './ThemeToggle';
 import { 
   GraduationCap, 
   User, 
@@ -98,7 +99,8 @@ export const Navbar = ({
 
         {/* Top Right Corner: Notification Bell & User Profile Menu */}
         {user ? (
-          <div style={{ position: 'relative', display: 'flex', alignItems: 'center', gap: '0.85rem' }}>
+          <div className="nav-actions" style={{ position: 'relative', display: 'flex', alignItems: 'center', gap: '0.85rem' }}>
+            <ThemeToggle compact />
             {/* Staff accounts have no operational portal access. */}
             {user.role !== 'OFFICE_STAFF' && <NotificationsDropdown onNavigateNoticeBoard={onNavigateNoticeBoard} />}
 
@@ -108,7 +110,7 @@ export const Navbar = ({
                 🏛️ CHAIRMAN (CSE)
               </span>
             ) : (
-              <span className={`badge ${getRoleBadgeClass(user.role)}`} style={{ display: 'none', md: 'inline-flex' }}>
+              <span className={`badge ${getRoleBadgeClass(user.role)} nav-role-badge`}>
                 <ShieldCheck size={12} />
                 {user.role.replace('_', ' ')}
               </span>
@@ -150,7 +152,7 @@ export const Navbar = ({
                   {user.firstName[0]}{user.lastName[0]}
                 </div>
 
-                <div style={{ textAlign: 'left', lineHeight: '1.2', display: 'none', md: 'block' }}>
+                <div className="nav-user-copy" style={{ textAlign: 'left', lineHeight: '1.2' }}>
                   <div style={{ fontSize: '0.85rem', fontWeight: '700', color: '#ffffff' }}>
                     {user.firstName} {user.lastName}
                   </div>
@@ -165,26 +167,23 @@ export const Navbar = ({
               {/* Profile Dropdown Menu */}
               {dropdownOpen && (
                 <div 
+                  className="nav-profile-menu"
                   style={{
                     position: 'absolute',
                     top: 'calc(100% + 8px)',
                     right: 0,
                     width: '240px',
-                    background: '#ffffff',
-                    color: '#0f172a',
                     borderRadius: '12px',
-                    boxShadow: '0 12px 30px rgba(0,0,0,0.22)',
-                    border: '1px solid #e2e8f0',
                     padding: '0.5rem',
                     zIndex: 100,
                     animation: 'slideUp 0.15s ease'
                   }}
                 >
-                  <div style={{ padding: '0.5rem 0.75rem', borderBottom: '1px solid #f1f5f9', marginBottom: '0.25rem' }}>
-                    <div style={{ fontSize: '0.85rem', fontWeight: '700', color: '#0f172a' }}>
+                  <div className="nav-profile-menu-heading" style={{ padding: '0.5rem 0.75rem', marginBottom: '0.25rem' }}>
+                    <div style={{ fontSize: '0.85rem', fontWeight: '700' }}>
                       {user.firstName} {user.lastName}
                     </div>
-                    <div style={{ fontSize: '0.72rem', color: '#64748b' }}>
+                    <div className="nav-profile-menu-email" style={{ fontSize: '0.72rem' }}>
                       {user.email}
                     </div>
                   </div>

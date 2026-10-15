@@ -10,10 +10,13 @@ import {
   X,
   Lock,
   Moon,
-  Volume2
+  Sun,
+  Monitor
 } from 'lucide-react';
+import { useTheme } from '../context/ThemeContext';
 
 export const SettingsModal = ({ isOpen, onClose, onOpenPasswordModal }) => {
+  const { preference: themePreference, setPreference: setThemePreference } = useTheme();
   const [settings, setSettings] = useState({
     noticeAlerts: true,
     examAlerts: true,
@@ -179,6 +182,23 @@ export const SettingsModal = ({ isOpen, onClose, onOpenPasswordModal }) => {
                 </div>
                 <div style={{ fontSize: '0.725rem', color: '#64748b' }}>High information density</div>
               </div>
+            </div>
+            <div className="settings-theme-choice" style={{ marginTop: '1rem' }}>
+              <div style={{ fontSize: '0.8rem', fontWeight: 700, color: 'var(--text-main)', marginBottom: '.55rem' }}>Appearance</div>
+              <div className="theme-preference-group" role="group" aria-label="Theme preference">
+                {[
+                  ['system', Monitor, 'System'],
+                  ['light', Sun, 'Light'],
+                  ['dark', Moon, 'Dark']
+                ].map(([value, Icon, label]) => <button
+                  key={value}
+                  type="button"
+                  onClick={() => setThemePreference(value)}
+                  className={`theme-preference-option ${themePreference === value ? 'active' : ''}`}
+                  aria-pressed={themePreference === value}
+                ><Icon size={15} /> {label}</button>)}
+              </div>
+              <p style={{ margin: '.55rem 0 0', color: 'var(--text-muted)', fontSize: '.72rem' }}>Saved automatically for this browser. System follows your device preference.</p>
             </div>
           </div>
 

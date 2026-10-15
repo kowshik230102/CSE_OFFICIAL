@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
+import { useAuth } from '../context/AuthContext';
 import { 
   GraduationCap, 
   BookOpen, 
@@ -33,6 +34,8 @@ import {
 } from 'lucide-react';
 
 export function TeacherCoursesView({ user, onBackToDashboard }) {
+  const { token } = useAuth();
+  const canSyncDirectory = user?.role === 'ADMIN' || user?.email === 'chair.cse_pust@gmail.com' || user?.isChair;
   // Faculty & Staff State
   const [facultyList, setFacultyList] = useState([]);
   const [staffList, setStaffList] = useState([]);
@@ -60,13 +63,14 @@ export function TeacherCoursesView({ user, onBackToDashboard }) {
   // Toast notifications
   const [toast, setToast] = useState(null);
 
-  // Live Clock Tick state (re-renders countdowns accurately every second)
+  // Course end dates are day-level values, so a minute cadence avoids
+  // redrawing the whole faculty directory every second.
   const [now, setNow] = useState(new Date());
 
   useEffect(() => {
     const timer = setInterval(() => {
       setNow(new Date());
-    }, 1000);
+    }, 60000);
     return () => clearInterval(timer);
   }, []);
 
@@ -85,7 +89,6 @@ export function TeacherCoursesView({ user, onBackToDashboard }) {
   // Fetch Faculty Members, Department Staff, and Sync Metadata from Backend
   const loadData = async (silent = false) => {
     if (!silent) setLoading(true);
-    const token = localStorage.getItem('token');
     const headers = token ? { Authorization: `Bearer ${token}` } : {};
 
     try {
@@ -118,7 +121,6 @@ export function TeacherCoursesView({ user, onBackToDashboard }) {
   // 1-Click On-Demand Sync from PUST Official Website
   const handleTriggerSync = async () => {
     setSyncing(true);
-    const token = localStorage.getItem('token');
     const headers = {
       'Content-Type': 'application/json',
       ...(token ? { Authorization: `Bearer ${token}` } : {})
@@ -160,15 +162,12 @@ export function TeacherCoursesView({ user, onBackToDashboard }) {
     const days = Math.floor(diffMs / (1000 * 60 * 60 * 24));
     const hours = Math.floor((diffMs % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
     const minutes = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60));
-    const seconds = Math.floor((diffMs % (1000 * 60)) / 1000);
-
     return {
       expired: false,
       days,
       hours,
       minutes,
-      seconds,
-      text: `${days}d ${hours}h ${minutes}m ${seconds}s`
+      text: `${days}d ${hours}h ${minutes}m`
     };
   };
 
@@ -407,7 +406,7 @@ export function TeacherCoursesView({ user, onBackToDashboard }) {
             <ExternalLink size={12} />
           </a>
 
-          <button
+          {canSyncDirectory && <button
             onClick={handleTriggerSync}
             disabled={syncing}
             style={{
@@ -428,7 +427,7 @@ export function TeacherCoursesView({ user, onBackToDashboard }) {
           >
             <RefreshCw size={16} className={syncing ? 'spin-animation' : ''} />
             <span>{syncing ? 'Synchronizing Live...' : 'Sync from University Portal'}</span>
-          </button>
+          </button>}
         </div>
       </div>
 
@@ -651,7 +650,7 @@ export function TeacherCoursesView({ user, onBackToDashboard }) {
                 ? 'Click below to instantly fetch and synchronize all 11 CSE teachers and staff from the official university portal.' 
                 : 'Try adjusting your search keyword or switching the designation filter above.'}
             </div>
-            {facultyList.length === 0 ? (
+            {facultyList.length === 0 && canSyncDirectory ? (
               <button
                 onClick={handleTriggerSync}
                 disabled={syncing}
@@ -674,7 +673,7 @@ export function TeacherCoursesView({ user, onBackToDashboard }) {
                 <RefreshCw size={18} className={syncing ? 'spin-animation' : ''} />
                 <span>{syncing ? 'Fetching from pust.ac.bd...' : 'Fetch & Sync Now from PUST (D01)'}</span>
               </button>
-            ) : (
+            ) : facultyList.length > 0 ? (
               <button
                 onClick={() => { setSearchQuery(''); setFacultyFilter('ALL'); }}
                 style={{
@@ -691,7 +690,7 @@ export function TeacherCoursesView({ user, onBackToDashboard }) {
               >
                 Reset Filters
               </button>
-            )}
+            ) : null}
           </div>
         ) : (
           <div style={{

@@ -4,6 +4,39 @@ const crypto = require('crypto');
 const { db } = require('../db/schema');
 const { authenticateUser, requireRoles } = require('../middleware/auth');
 
+// Legacy result-entry routes receive the course id in the request body rather
+// than the URL. Keep the same ADMIN/chair override and assigned-teacher rule
+// used elsewhere, without exposing a write path to any signed-in account.
+function verifyResultEntryFaculty(req, res, next) {
+  const courseId = req.body?.courseId;
+  if (!courseId) {
+    return res.status(400).json({ error: 'Course ID is required.' });
+  }
+
+  if (!req.user) {
+    return res.status(401).json({ error: 'Authentication required.' });
+  }
+
+  if (req.user.role === 'ADMIN' || req.user.email === 'chair.cse_pust@gmail.com') {
+    return next();
+  }
+
+  if (req.user.role !== 'TEACHER' || !req.user.teacherId) {
+    return res.status(403).json({ error: 'Only the assigned teacher or an administrator can record results.' });
+  }
+
+  const assignment = db.prepare(`
+    SELECT id FROM course_assignments
+    WHERE course_id = ? AND teacher_id = ?
+  `).get(courseId, req.user.teacherId);
+
+  if (!assignment) {
+    return res.status(403).json({ error: 'You are not assigned to record results for this course.' });
+  }
+
+  return next();
+}
+
 /**
  * Standard University Grading System (UGC / Engineering Scale)
  */
@@ -261,7 +294,7 @@ router.get('/course/:courseId', authenticateUser, (req, res) => {
 // ==========================================
 // 4. SUBMIT / UPDATE MARKS & RESULT ENTRY (TEACHER OR OFFICE)
 // ==========================================
-router.post('/entry', authenticateUser, (req, res) => {
+router.post('/entry', authenticateUser, verifyResultEntryFaculty, (req, res) => {
   try {
     const { courseId, studentId, continuousAssessmentMarks, finalExamMarks, status = 'PUBLISHED' } = req.body;
 
@@ -328,14 +361,14 @@ router.post('/entry', authenticateUser, (req, res) => {
     });
   } catch (err) {
     console.error('[Result Entry API] Error:', err);
-    return res.status(500).json({ error: 'Failed to record student result: ' + err.message });
+    return res.status(500).json({ error: 'Failed to record the student result.' });
   }
 });
 
 // ==========================================
 // 5. BATCH SUBMIT RESULTS (TEACHER OR OFFICE)
 // ==========================================
-router.post('/batch-entry', authenticateUser, (req, res) => {
+router.post('/batch-entry', authenticateUser, verifyResultEntryFaculty, (req, res) => {
   try {
     const { courseId, entries = [], status = 'PUBLISHED' } = req.body;
 
@@ -400,7 +433,7 @@ router.post('/batch-entry', authenticateUser, (req, res) => {
     });
   } catch (err) {
     console.error('[Batch Results API] Error:', err);
-    return res.status(500).json({ error: 'Failed to record batch results: ' + err.message });
+    return res.status(500).json({ error: 'Failed to record batch results.' });
   }
 });
 

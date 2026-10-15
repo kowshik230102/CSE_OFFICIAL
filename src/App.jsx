@@ -1,24 +1,34 @@
-import React, { useState } from 'react';
+import React, { lazy, Suspense, useState } from 'react';
 import { useAuth } from './context/AuthContext';
 import { Navbar } from './components/Navbar';
 import { CollapsibleSidebar } from './components/CollapsibleSidebar';
-import { ProfileModal } from './components/ProfileModal';
-import { SettingsModal } from './components/SettingsModal';
-import { TeacherManagementModal } from './components/TeacherManagementModal';
-import { LoginPage } from './components/LoginPage';
-import { AdminView } from './components/AdminView';
-import { OfficeView } from './components/OfficeView';
-import { TeacherView } from './components/TeacherView';
-import { TeacherDashboardView } from './components/TeacherDashboardView';
-import { StaffRestrictedView } from './components/StaffRestrictedView';
-import { StudentView } from './components/StudentView';
-import { PasswordModal } from './components/AuthModals';
-import { RoutineGeneratorView } from './components/RoutineGeneratorView';
-import { TeacherCoursesView } from './components/TeacherCoursesView';
-import { ContinuousAssessmentView } from './components/ContinuousAssessmentView';
-import { CourseInfoView } from './components/CourseInfoView';
-import { StudentInfoView } from './components/StudentInfoView';
+import { AppErrorBoundary } from './components/AppErrorBoundary';
 import { GraduationCap } from 'lucide-react';
+
+const named = (loader, exportName) => lazy(() => loader().then(module => ({ default: module[exportName] || module.default })));
+const ProfileModal = named(() => import('./components/ProfileModal'), 'ProfileModal');
+const SettingsModal = named(() => import('./components/SettingsModal'), 'SettingsModal');
+const TeacherManagementModal = named(() => import('./components/TeacherManagementModal'), 'TeacherManagementModal');
+const LoginPage = named(() => import('./components/LoginPage'), 'LoginPage');
+const AdminView = named(() => import('./components/AdminView'), 'AdminView');
+const TeacherView = named(() => import('./components/TeacherView'), 'TeacherView');
+const TeacherDashboardView = named(() => import('./components/TeacherDashboardView'), 'TeacherDashboardView');
+const StaffRestrictedView = named(() => import('./components/StaffRestrictedView'), 'StaffRestrictedView');
+const StudentView = named(() => import('./components/StudentView'), 'StudentView');
+const PasswordModal = named(() => import('./components/AuthModals'), 'PasswordModal');
+const RoutineGeneratorView = named(() => import('./components/RoutineGeneratorView'), 'RoutineGeneratorView');
+const TeacherCoursesView = named(() => import('./components/TeacherCoursesView'), 'TeacherCoursesView');
+const ContinuousAssessmentView = named(() => import('./components/ContinuousAssessmentView'), 'ContinuousAssessmentView');
+const CourseInfoView = named(() => import('./components/CourseInfoView'), 'CourseInfoView');
+const StudentInfoView = named(() => import('./components/StudentInfoView'), 'StudentInfoView');
+
+function WorkspaceLoader() {
+  return <div className="app-loading-state" role="status" aria-live="polite">
+    <div className="app-loading-mark"><GraduationCap size={26} /></div>
+    <strong>Preparing your workspace</strong>
+    <span>Loading the selected academic module…</span>
+  </div>;
+}
 
 export function App() {
   const { user, loading, logout } = useAuth();
@@ -37,19 +47,19 @@ export function App() {
 
   if (loading) {
     return (
-      <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', background: '#09101d', color: '#ffffff' }}>
-        <div style={{ width: '48px', height: '48px', borderRadius: '12px', background: 'linear-gradient(135deg, #3b82f6, #6366f1)', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: '1rem', animation: 'spin 2s linear infinite' }}>
+      <div className="app-loading-state" role="status" aria-live="polite">
+        <div className="app-loading-mark">
           <GraduationCap size={28} />
         </div>
         <h3 style={{ fontSize: '1.25rem', fontWeight: 800 }}>Department of Computer Science & Engineering</h3>
-        <p style={{ color: '#94a3b8', fontSize: '0.85rem', marginTop: '0.25rem' }}>Loading verified RBAC session...</p>
+        <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem', marginTop: '0.25rem' }}>Loading verified RBAC session…</p>
       </div>
     );
   }
 
   // If user is not logged in, render the gorgeous 3-option login page
   if (!user) {
-    return <LoginPage />;
+    return <AppErrorBoundary><Suspense fallback={<WorkspaceLoader />}><LoginPage /></Suspense></AppErrorBoundary>;
   }
 
   const handleSelectNavTab = (tabId) => {
@@ -93,6 +103,7 @@ export function App() {
 
   // Render Logged-In Application Layout
   return (
+    <AppErrorBoundary><Suspense fallback={<WorkspaceLoader />}>
     <div className="app-container">
       {/* Universal Top Navigation & Role Switcher */}
       <Navbar 
@@ -192,6 +203,7 @@ export function App() {
         onClose={() => setIsPasswordModalOpen(false)}
       />
     </div>
+    </Suspense></AppErrorBoundary>
   );
 }
 

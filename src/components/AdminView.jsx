@@ -135,7 +135,7 @@ export const AdminView = ({ initialTab = 'users' }) => {
               <span className="live-beacon" style={{ marginRight: '4px' }}></span> Root Administrator Mode
             </span>
             <span style={{ fontSize: '0.8rem', background: 'rgba(0,0,0,0.25)', padding: '0.2rem 0.6rem', borderRadius: '6px', border: '1px solid rgba(255,255,255,0.1)' }}>
-              Engine Status: <strong>5,000+ Active Users Engine</strong> • 99.99% Uptime
+              Workspace status: <strong>Central academic administration</strong>
             </span>
           </div>
           <h2 style={{ fontSize: '1.75rem', fontWeight: 800, letterSpacing: '-0.02em', textShadow: '0 2px 8px rgba(0,0,0,0.3)' }}>

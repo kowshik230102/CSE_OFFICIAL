@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useRef } from 'react';
 import { 
   GraduationCap, 
   LayoutDashboard, 
@@ -35,6 +35,25 @@ export const CollapsibleSidebar = ({
   onOpenPasswordModal,
   onLogout
 }) => {
+  const closeButtonRef = useRef(null);
+
+  useEffect(() => {
+    if (!isOpen) return undefined;
+
+    const closeOnEscape = (event) => {
+      if (event.key === 'Escape') onClose();
+    };
+
+    document.body.classList.add('sidebar-open');
+    document.addEventListener('keydown', closeOnEscape);
+    window.requestAnimationFrame(() => closeButtonRef.current?.focus());
+
+    return () => {
+      document.body.classList.remove('sidebar-open');
+      document.removeEventListener('keydown', closeOnEscape);
+    };
+  }, [isOpen, onClose]);
+
   if (!isOpen) return null;
 
   const handleNavClick = (tabId) => {
@@ -73,6 +92,9 @@ export const CollapsibleSidebar = ({
       {/* Sliding Drawer Container */}
       <aside 
         className="sidebar-drawer"
+        role="dialog"
+        aria-modal="true"
+        aria-label="Portal navigation"
         style={{
           position: 'fixed',
           top: 0,
@@ -124,6 +146,7 @@ export const CollapsibleSidebar = ({
           </div>
 
           <button
+            ref={closeButtonRef}
             onClick={onClose}
             aria-label="Close navigation sidebar"
             style={{
@@ -148,7 +171,10 @@ export const CollapsibleSidebar = ({
 
         {/* User Identity Card Preview */}
         {user && (
-          <div style={{
+          <button
+            type="button"
+            aria-label="Open my profile"
+            style={{
             padding: '1rem 1.25rem',
             margin: '0.85rem 1rem 0.5rem',
             background: 'rgba(30, 41, 59, 0.7)',
@@ -193,7 +219,7 @@ export const CollapsibleSidebar = ({
                 </span>
               </div>
             </div>
-          </div>
+          </button>
         )}
 
         {/* Scrollable Navigation Body */}
@@ -512,7 +538,7 @@ export const CollapsibleSidebar = ({
           </button>
 
           <div style={{ textAlign: 'center', fontSize: '0.65rem', color: '#64748b', marginTop: '0.65rem' }}>
-            CSE Operations Engine v2.4 • High Concurrency Architecture
+            CSE Academic Operations Portal
           </div>
         </div>
       </aside>

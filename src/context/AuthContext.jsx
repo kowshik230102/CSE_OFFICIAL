@@ -3,9 +3,9 @@ import React, { createContext, useContext, useState, useEffect } from 'react';
 const AuthContext = createContext(null);
 
 export const DEMO_USERS = [
-  { label: 'Chairman (Dr. Abdur Rahim, Dept Chair)', email: 'chair.cse_pust@gmail.com', password: '12345678', role: 'TEACHER', isChair: true },
+  { label: 'Chairman (Dr. Abdur Rahim, Dept Chair)', email: 'chair.cse_pust@gmail.com', password: 'Teacher@123', role: 'TEACHER', isChair: true },
   { label: 'Admin (Master Control)', email: 'admin@cse.univ.edu', password: 'Admin@123', role: 'ADMIN' },
-  { label: 'Office Staff (Academic Data)', email: 'office@cse.univ.edu', password: 'Office@123', role: 'OFFICE_STAFF' },
+  { label: 'Office Staff (Restricted Account)', email: 'office@cse.univ.edu', password: 'Teacher@123', role: 'OFFICE_STAFF' },
   { label: 'Teacher (Dr. M. Rahman)', email: 'rahman@cse.univ.edu', password: 'Teacher@123', role: 'TEACHER' },
   { label: 'Teacher (Dr. S. Fatima)', email: 'fatima@cse.univ.edu', password: 'Teacher@123', role: 'TEACHER' },
   { label: 'Student (Tanvir - Roll: 20230101)', email: 'student1@cse.univ.edu', password: 'Student@123', role: 'STUDENT' },
